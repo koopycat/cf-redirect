@@ -43,30 +43,44 @@ jobs:
           go-version-file: go.mod
           cache: true
       - run: go test ./...
+      - name: Cloudflare token helper test
+        run: bash scripts/create-cloudflare-token_test.sh
       - run: go vet ./...
 
   build:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
+            uname-arch: x86_64
           - goos: linux
             goarch: arm64
+            runner: ubuntu-24.04-arm
+            uname-arch: aarch64
           - goos: darwin
             goarch: amd64
+            runner: macos-15-intel
+            uname-arch: x86_64
           - goos: darwin
             goarch: arm64
+            runner: macos-15
+            uname-arch: arm64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
+      - name: Verify native runner
+        env:
+          EXPECTED_ARCH: ${{ matrix.uname-arch }}
+        run: test "$(uname -m)" = "$EXPECTED_ARCH"
       - name: Build and package
         env:
           GOOS: ${{ matrix.goos }}
@@ -77,7 +91,9 @@ jobs:
           archive="cf-redirect_${version}_${GOOS}_${GOARCH}"
           mkdir -p "dist/${archive}"
           go build -trimpath -ldflags="-s -w" -o "dist/${archive}/cf-redirect" ./cmd/cf-redirect
+          "dist/${archive}/cf-redirect" --help
           tar -C dist -czf "dist/${archive}.tar.gz" "${archive}"
+          tar -tzf "dist/${archive}.tar.gz" >/dev/null
           rm -rf "dist/${archive}"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -139,25 +155,38 @@ jobs:
           darwin_amd64_sha="$(sha256sum "dist/cf-redirect_${version}_darwin_amd64.tar.gz" | cut -d ' ' -f1)"
           linux_arm64_sha="$(sha256sum "dist/cf-redirect_${version}_linux_arm64.tar.gz" | cut -d ' ' -f1)"
           linux_amd64_sha="$(sha256sum "dist/cf-redirect_${version}_linux_amd64.tar.gz" | cut -d ' ' -f1)"
-          python3 - "$version" "$darwin_arm64_sha" "$darwin_amd64_sha" "$linux_arm64_sha" "$linux_amd64_sha" <<'PY'
+          python3 - "$version" \
+            "darwin_arm64=$darwin_arm64_sha" \
+            "darwin_amd64=$darwin_amd64_sha" \
+            "linux_arm64=$linux_arm64_sha" \
+            "linux_amd64=$linux_amd64_sha" <<'PY'
           from pathlib import Path
           import re
           import sys
 
-          version, *checksums = sys.argv[1:]
+          version, *checksum_args = sys.argv[1:]
+          checksums = dict(argument.split("=", 1) for argument in checksum_args)
+          archives = {
+              "darwin_arm64": "darwin_arm64",
+              "darwin_amd64": "darwin_amd64",
+              "linux_arm64": "linux_arm64",
+              "linux_amd64": "linux_amd64",
+          }
           path = Path("homebrew-tap/Formula/cf-redirect.rb")
           formula = path.read_text()
           formula, version_changes = re.subn(
               r'^  version "[^"]+"$', f'  version "{version}"', formula, count=1, flags=re.MULTILINE
           )
-          checksum_iter = iter(checksums)
-          formula, checksum_changes = re.subn(
-              r'(?m)^(      sha256 )"[0-9a-f]{64}"$',
-              lambda match: f'{match.group(1)}"{next(checksum_iter)}"',
-              formula,
-          )
-          if version_changes != 1 or checksum_changes != 4:
-              raise SystemExit("could not find the expected version and checksum stanzas")
+          checksum_changes = 0
+          for platform, archive in archives.items():
+              pattern = (
+                  rf'(?m)(^      url "[^"]+/cf-redirect_#\{{version\}}_{archive}\.tar\.gz"\n'
+                  rf'      sha256 )"[0-9a-f]{{64}}"$'
+              )
+              formula, changes = re.subn(pattern, rf'\g<1>"{checksums[platform]}"', formula, count=1)
+              checksum_changes += changes
+          if version_changes != 1 or checksum_changes != len(archives):
+              raise SystemExit("could not find the expected version and platform checksum URL blocks")
           path.write_text(formula)
           PY
           ruby -c homebrew-tap/Formula/cf-redirect.rb
@@ -174,3 +203,36 @@ jobs:
           git diff --cached --check
           git commit -m "Update cf-redirect to ${version}"
           git push origin HEAD:main
+
+  verify-homebrew:
+    name: Verify Homebrew formula (${{ matrix.goarch }})
+    needs: update-homebrew
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            runner: macos-15-intel
+            uname-arch: x86_64
+          - goarch: arm64
+            runner: macos-15
+            uname-arch: arm64
+    steps:
+      - name: Verify native runner
+        env:
+          EXPECTED_ARCH: ${{ matrix.uname-arch }}
+        run: test "$(uname -m)" = "$EXPECTED_ARCH"
+      - name: Install release formula
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          brew update
+          brew uninstall --force cf-redirect 2>/dev/null || true
+          brew install koopycat/tap/cf-redirect
+          version="${VERSION#v}"
+          test "$(brew list --versions cf-redirect | awk '{print $2}')" = "$version"
+          "$(brew --prefix cf-redirect)/bin/cf-redirect" --help
+      - name: Test release formula
+        run: brew test koopycat/tap/cf-redirect
