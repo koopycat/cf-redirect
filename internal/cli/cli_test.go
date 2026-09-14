@@ -13,6 +13,7 @@ import (
 	"github.com/koopycat/cf-redirect/internal/domain"
 	"github.com/koopycat/cf-redirect/internal/planner"
 	"github.com/koopycat/cf-redirect/internal/textsafe"
+	"github.com/koopycat/cf-redirect/internal/version"
 	"github.com/spf13/cobra"
 )
 
@@ -163,6 +164,20 @@ func TestLogoutUsesAccountFlagWithoutListIDOrPersistedConfig(t *testing.T) {
 		t.Fatalf("account token still exists: %q, %v", got, err)
 	}
 	if got, want := output.String(), "Stored API token removed.\n"; got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
+}
+
+func TestRootVersionFlag(t *testing.T) {
+	root := NewRootCmd()
+	root.SetArgs([]string{"--version"})
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := output.String(), "cf-redirect version "+version.String()+"\n"; got != want {
 		t.Fatalf("output = %q, want %q", got, want)
 	}
 }

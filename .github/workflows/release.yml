@@ -31,6 +31,10 @@ jobs:
             echo "Release tags must point to a commit reachable from main" >&2
             exit 1
           }
+      - name: Require tag to match embedded version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: test "$TAG" = "v$(tr -d '[:space:]' < internal/version/VERSION)"
 
   test:
     name: Test

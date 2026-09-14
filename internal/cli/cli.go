@@ -25,6 +25,7 @@ import (
 	"github.com/koopycat/cf-redirect/internal/planner"
 	"github.com/koopycat/cf-redirect/internal/textsafe"
 	"github.com/koopycat/cf-redirect/internal/tui"
+	"github.com/koopycat/cf-redirect/internal/version"
 )
 
 type options struct {
@@ -38,6 +39,7 @@ func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "cf-redirect",
 		Short:         "Safely manage a Cloudflare Bulk Redirect List",
+		Version:       version.String(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		Args:          cobra.NoArgs,
