@@ -29,6 +29,41 @@ func TestReadStrictCSV(t *testing.T) {
 	}
 }
 
+func TestReadAcceptsCommaOrSemicolonWithOptionalHeader(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "comma with header", input: "source,target\nhttps://a.example/x,https://b.example/y\n"},
+		{name: "comma without header", input: "https://a.example/x,https://b.example/y\n"},
+		{name: "semicolon with header", input: "source;target\nhttps://a.example/x;https://b.example/y\n"},
+		{name: "semicolon without header", input: "https://a.example/x;https://b.example/y\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			items, err := Read(strings.NewReader(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(items) != 1 || items[0].Source != "https://a.example/x" || items[0].Target != "https://b.example/y" {
+				t.Fatalf("unexpected items: %#v", items)
+			}
+		})
+	}
+}
+
+func TestReadSemicolonSeparatedQuotedValue(t *testing.T) {
+	input := "source;target\n\"https://a.example/x;y\";https://b.example/y\n"
+	items, err := Read(strings.NewReader(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Source != "https://a.example/x;y" {
+		t.Fatalf("unexpected items: %#v", items)
+	}
+}
+
 func TestWriteAndReadQuotedValues(t *testing.T) {
 	input := "source,target\n\"https://a.example/x,y\",https://b.example/y\n"
 	items, err := Read(strings.NewReader(input))

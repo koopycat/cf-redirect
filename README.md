@@ -102,14 +102,18 @@ Cloudflare permits a source URL without a scheme, such as `example.com/blog/`; t
 
 ### CSV import
 
-CSV input must have exactly this header:
+CSV input accepts either commas or semicolons as separators. The `source,target` (or `source;target`) header is optional:
 
 ```csv
 source,target
 example.com/old/,https://www.example.com/new/
 ```
 
-Import performs source-keyed upserts. Its plan reports CSV rows whose source and target already exist unchanged as `skipped existing`. It does not delete current redirects absent from the file, and omitted redirects are not included in the skipped count.
+```csv
+example.com/old/;https://www.example.com/new/
+```
+
+Each file must use one separator consistently and contain exactly two fields per row. Import performs source-keyed upserts. Its plan reports CSV rows whose source and target already exist unchanged as `skipped existing`. It does not delete current redirects absent from the file, and omitted redirects are not included in the skipped count.
 
 ## Development
 
