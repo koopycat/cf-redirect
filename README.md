@@ -85,6 +85,8 @@ Running `cf-redirect` in an interactive terminal opens the TUI.
 ```sh
 cf-redirect list
 cf-redirect list --format json
+cf-redirect export redirects.csv
+cf-redirect export - > redirects.csv
 cf-redirect search example.com
 cf-redirect add example.com/blog/ https://www.example.com/articles/ --dry-run
 cf-redirect add example.com/blog/ https://www.example.com/articles/ --yes
@@ -100,9 +102,11 @@ cf-redirect status OPERATION_ID
 
 Cloudflare permits a source URL without a scheme, such as `example.com/blog/`; this matches both HTTP and HTTPS. Targets must remain absolute `http://` or `https://` URLs. Sources and targets reject fragments, user information, and control characters.
 
-### CSV import
+### CSV export and import
 
-CSV input accepts either commas or semicolons as separators. The `source,target` (or `source;target`) header is optional:
+`cf-redirect export redirects.csv` writes every redirect in the configured list to a comma-separated CSV file, including the `source,target` header. An existing destination file is replaced only after the complete export has been written successfully. Use `cf-redirect export -` to write CSV to standard output.
+
+CSV import accepts either commas or semicolons as separators. The `source,target` (or `source;target`) header is optional:
 
 ```csv
 source,target

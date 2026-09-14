@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -182,9 +184,32 @@ func TestRootVersionFlag(t *testing.T) {
 	}
 }
 
+func TestWriteCSVFileCreatesAndAtomicallyReplacesExport(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "redirects.csv")
+	items := []domain.Redirect{domain.New("example.com/old/", "https://www.example.com/new/")}
+	if err := writeCSVFile(path, items); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(path); err != nil {
+		t.Fatal(err)
+	} else if want := "source,target\nexample.com/old/,https://www.example.com/new/\n"; string(got) != want {
+		t.Fatalf("file = %q, want %q", got, want)
+	}
+
+	replacement := []domain.Redirect{domain.New("example.com/next/", "https://www.example.com/final/")}
+	if err := writeCSVFile(path, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := os.ReadFile(path); err != nil {
+		t.Fatal(err)
+	} else if strings.Contains(string(got), "old") || !strings.Contains(string(got), "next") {
+		t.Fatalf("file was not replaced cleanly: %q", got)
+	}
+}
+
 func TestRootIncludesRequiredCommands(t *testing.T) {
 	root := NewRootCmd()
-	for _, name := range []string{"list", "search", "add", "edit", "delete", "clear", "import", "config", "auth", "login", "logout", "status", "tui"} {
+	for _, name := range []string{"list", "search", "export", "add", "edit", "delete", "clear", "import", "config", "auth", "login", "logout", "status", "tui"} {
 		if _, _, err := root.Find([]string{name}); err != nil {
 			t.Fatalf("command %q is missing: %v", name, err)
 		}

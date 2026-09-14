@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -52,7 +53,7 @@ func NewRootCmd() *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&o.accountID, "account-id", "", "Cloudflare account ID (or CLOUDFLARE_ACCOUNT_ID)")
 	root.PersistentFlags().StringVar(&o.listID, "list-id", "", "Cloudflare redirect list ID (or CLOUDFLARE_LIST_ID)")
-	root.AddCommand(listCmd(o), searchCmd(o), addCmd(o), editCmd(o), deleteCmd(o), clearCmd(o), importCmd(o), configCmd(o), authCmd(o), loginCmd(o), logoutCmd(o), statusCmd(o), tuiCmd(o))
+	root.AddCommand(listCmd(o), searchCmd(o), exportCmd(o), addCmd(o), editCmd(o), deleteCmd(o), clearCmd(o), importCmd(o), configCmd(o), authCmd(o), loginCmd(o), logoutCmd(o), statusCmd(o), tuiCmd(o))
 	return root
 }
 
@@ -107,6 +108,55 @@ func searchCmd(o *options) *cobra.Command {
 	}}
 	cmd.Flags().StringVarP(&format, "format", "f", "table", "Output: table, json, or csv")
 	return cmd
+}
+
+func exportCmd(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "export <file|->",
+		Short: "Export all redirects as CSV",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, api, err := configured(cmd, o)
+			if err != nil {
+				return err
+			}
+			items, err := api.ListItems(cmd.Context(), cfg.AccountID, cfg.ListID)
+			if err != nil {
+				return err
+			}
+			if args[0] == "-" {
+				return csvio.Write(cmd.OutOrStdout(), items)
+			}
+			return writeCSVFile(args[0], items)
+		},
+	}
+}
+
+func writeCSVFile(path string, items []domain.Redirect) (err error) {
+	directory := filepath.Dir(path)
+	temporary, err := os.CreateTemp(directory, ".cf-redirect-export-*")
+	if err != nil {
+		return fmt.Errorf("create temporary export: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryPath)
+	}()
+
+	if err = csvio.Write(temporary, items); err != nil {
+		return err
+	}
+	if err = temporary.Sync(); err != nil {
+		return fmt.Errorf("sync export: %w", err)
+	}
+	if err = temporary.Close(); err != nil {
+		return fmt.Errorf("close export: %w", err)
+	}
+	if err = os.Rename(temporaryPath, path); err != nil {
+		return fmt.Errorf("replace export file: %w", err)
+	}
+	return nil
 }
 
 func addCmd(o *options) *cobra.Command {
