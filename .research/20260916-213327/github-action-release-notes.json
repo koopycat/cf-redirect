@@ -1,0 +1,45 @@
+{
+  "query": "GitHub Actions release notes body",
+  "results": [
+    {
+      "title": "Automatically generated release notes - GitHub Docs",
+      "url": "https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes",
+      "snippet": "Automatically generated release notes include a list of merged pull requests, a list of contributors to the release, and a link to a full changelog. You can ..."
+    },
+    {
+      "title": "Release Changelog Builder · Actions · GitHub Marketplace · GitHub",
+      "url": "https://github.com/marketplace/actions/release-changelog-builder",
+      "snippet": "- name: \"Build Changelog\" id: build_changelog uses: mikepenz/release-changelog-builder-action@{latest-release} Important · When upgrading from v4 to v5, please ensure to read the upgrade warning in the release notes, especially if regexes are used. Below is a complete example showcasing how to define a build, which is executed when tagging the project. It consists of: Prepare tag, via the GITHUB_REF environment variable · Build changelog, given the tag · Create a release on GitHub - specifying body with a constructed changelog ·"
+    },
+    {
+      "title": "Generate GitHub Release Notes · Actions · GitHub Marketplace · GitHub",
+      "url": "https://github.com/marketplace/actions/generate-github-release-notes",
+      "snippet": "If body is specified, the body will be pre-pended to the automatically generated notes. See the GitHub docs for this feature for more information · Complete example usage of the suggested alternative: name: Create Release on: push: tags: - ..."
+    },
+    {
+      "title": "GitHub - softprops/action-gh-release: 📦 GitHub Action for creating GitHub Releases",
+      "url": "https://github.com/softprops/action-gh-release",
+      "snippet": "When generate_release_notes is enabled, use this tag as GitHub's previous_tag_name comparison base. If omitted, GitHub chooses the comparison base automatically. ... Specifies whether this release should be set as the latest release for the repository. Drafts and prereleases cannot be set as latest. Can be true, false, or legacy. Uses GitHub api defaults if not provided · 💡 When providing a body and body_path at the same time, body_path will be attempted first, then falling back on body if the path can not be read from."
+    },
+    {
+      "title": "create-release-notes · Actions · GitHub Marketplace · GitHub",
+      "url": "https://github.com/marketplace/actions/create-release-notes",
+      "snippet": "- uses: johnyherangi/create-release-notes@main id: create-release-notes env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} - uses: actions/create-release@v1 env: GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} with: tag_name: '1.0.0' release_name: My Release body: ${{ steps.create-release-notes.outputs.release-notes }} Open an issue2 (2) Pull requests5 (5) View source code ·"
+    },
+    {
+      "title": "How can I auto-generate a release note and create a release using Github Actions - Stack Overflow",
+      "url": "https://stackoverflow.com/questions/75679683/how-can-i-auto-generate-a-release-note-and-create-a-release-using-github-actions",
+      "snippet": "09.03.2023 ... I used a plug-and-play GitHub Action that runs on PR merge. It generates release notes from Git history, and setup was straightforward. The ..."
+    },
+    {
+      "title": "Release with Changelog · Actions · GitHub Marketplace · GitHub",
+      "url": "https://github.com/marketplace/actions/release-with-changelog",
+      "snippet": "Creates reasonable enough GitHub releases for pushed tags, with the commit log as release body. The action also has customizable release body, that support markdown, and template fields."
+    },
+    {
+      "title": "Automating Multi-Platform Releases with GitHub Actions - Medium",
+      "url": "https://itsfuad.medium.com/automating-multi-platform-releases-with-github-actions-f74de82c76e2",
+      "snippet": "25.03.2025 ... This workflow triggers a release whenever a new version tag (e.g., v1.0.0 ) is pushed. Workflow File: .github/workflows/release-tag.yml. name: ..."
+    }
+  ]
+}

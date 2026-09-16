@@ -1,0 +1,45 @@
+{
+  "query": "GitHub release notes changelog",
+  "results": [
+    {
+      "title": "Automatically generated release notes - GitHub Docs",
+      "url": "https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes",
+      "snippet": "# .github/release.yml changelog: exclude: labels: - ignore-for-release authors: - octocat categories: - title: Breaking Changes 🛠 labels: - Semver-Major - breaking-change - title: Exciting New Features 🎉 labels: - Semver-Minor - enhancement - title: Other Changes labels: - \"*\" A configuration for a repository that doesn't tag pull requests but where we want to separate out Dependabot automated pull requests in release notes (labels: '*' is required to display a catchall category)"
+    },
+    {
+      "title": "GitHub Changelog",
+      "url": "https://github.blog/changelog/",
+      "snippet": "11 Improvement. Auto-resolution and analysis updates in Copilot code review · copilot. Sep.10 Release. GitHub Copilot weekly releases — September 7 · copilot ..."
+    },
+    {
+      "title": "Create release notes from changelog - GitHub Marketplace",
+      "url": "https://github.com/marketplace/actions/create-release-notes-from-changelog",
+      "snippet": "Release-notes-from-changelog. Release-notes-from-changelog is a GitHub action for extracting release notes from a changelog formatted according to https:// ..."
+    },
+    {
+      "title": "Release Changelog Builder · Actions · GitHub Marketplace",
+      "url": "https://github.com/marketplace/actions/release-changelog-builder",
+      "snippet": "A GitHub action that builds your release notes / changelog fast, easy and exactly the way you want."
+    },
+    {
+      "title": "GitHub - conventional-changelog/conventional-changelog: Generate changelogs and release notes from a project's commit messages and metadata. · GitHub",
+      "url": "https://github.com/conventional-changelog/conventional-changelog",
+      "snippet": "vor 5 Tagen ... Generate changelogs and release notes from a project's commit messages and metadata. - conventional-changelog/conventional-changelog."
+    },
+    {
+      "title": "Release notes management - DEV Community",
+      "url": "https://dev.to/r7kamura/release-notes-management-2ho0",
+      "snippet": "Basically, I add these labels at the time of review, but even if I forget to do so, I can add them before release. It's troublesome to prepare these labels on each repository by hand, so I've automated it by using github-label-sync-action. If you put the name, description, and color of each label in .github/labels.yml, it will automatically sync them to GitHub. Furthermore, I would like to automate the process of preparing this configuration YAML files, so I created r7kamura/github-keepachangelog-template for that and use gitcp to copy it to the current directory."
+    },
+    {
+      "title": "Changelog Updater · Actions · GitHub Marketplace",
+      "url": "https://github.com/marketplace/actions/changelog-updater",
+      "snippet": "# compare-url-target-revision: ${{ github.event.release.target_commitish }} - name: Commit updated CHANGELOG uses: stefanzweifel/git-auto-commit-action@v5 with: # Push updated CHANGELOG to release target branch. branch: ${{ github.event.release.target_commitish }} commit_message: Update CHANGELOG file_pattern: CHANGELOG.md · HannesWell uses the Action in a worfklow triggered by the workflow_dispatch: See workflow. ... uses the content between the Unreleased and Previous Release heading as release notes and updates the CHANGELOG.md"
+    },
+    {
+      "title": "github-release-notes/CHANGELOG.md at master · github-tools/github-release-notes",
+      "url": "https://github.com/github-tools/github-release-notes/blob/master/CHANGELOG.md",
+      "snippet": "Node module to create a release or a changelog from a tag and uses issues or commits to creating the release notes. - github-release-notes/CHANGELOG.md at master · github-tools/github-release-notes"
+    }
+  ]
+}
