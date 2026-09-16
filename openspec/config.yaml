@@ -1,0 +1,37 @@
+schema: spec-driven
+
+context: |
+  cf-redirect is a Go 1.25 CLI and Bubble Tea TUI for safely managing one
+  explicitly configured Cloudflare Bulk Redirect List. Cobra and Bubble Tea
+  are interface layers over independent domain, planner, application, CSV,
+  authentication, configuration, and Cloudflare client packages.
+
+  Safety is the primary product constraint. Every mutation is planned and
+  displayed before apply. Non-interactive mutation requires --yes or
+  --dry-run. CSV import is add/update only and never deletes omitted entries.
+  Existing redirect options and comments are preserved during edits. The
+  Cloudflare replace-all endpoint must never be used; unchanged-source updates
+  use POST upsert, while deletes always use explicit item IDs. Asynchronous
+  mutations are polled to completion before dependent work begins.
+
+  API tokens must never be persisted, printed, or logged outside the OS
+  keychain. CLOUDFLARE_API_TOKEN takes precedence over the account-specific
+  keychain entry. Account and list IDs remain explicit on API operations.
+
+  Development uses devenv and just. Canonical checks are `just check`,
+  `just race`, `just integration-mock`, and `just build`.
+
+rules:
+  proposal:
+    - State which existing safety invariants are affected.
+    - Include explicit non-goals when adjacent behavior could be mistaken as in scope.
+  specs:
+    - Write requirements as observable behavior rather than implementation tasks.
+    - Include failure, cancellation, and non-interactive scenarios where relevant.
+    - Preserve the distinction between Cloudflare account scope and redirect-list scope.
+  design:
+    - Keep domain, planning, and application decisions independent from Cobra and Bubble Tea.
+    - Explain mutation ordering, partial-failure behavior, and credential exposure risks when relevant.
+  tasks:
+    - Include focused automated tests for each behavior change.
+    - Include `just check` and the relevant integration command as verification tasks.
