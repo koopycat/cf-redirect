@@ -1,45 +1,24 @@
 # cf-redirect
 
-`cf-redirect` is a Go CLI and terminal UI for managing one Cloudflare Bulk Redirect List. It can list and search redirects, preview additions and edits, import CSV upserts, and delete redirects by item ID.
+`cf-redirect` manages one Cloudflare Bulk Redirect List from the terminal. It includes a keyboard-driven TUI and commands for scripts and CI.
 
-## Safety model
+Every change is shown before it runs. CSV imports only add or update redirects, so a missing row never deletes an existing redirect.
 
-- Every mutation is validated and shown before it runs. Scripts must pass `--yes` or `--dry-run`.
-- CSV import only adds or updates redirects. It never deletes redirects that are missing from the file, and there is no `--sync` mode.
-- An update deletes the old item, waits for Cloudflare to finish, and then posts the replacement.
-- The client never calls Cloudflare's replace-all `PUT /items` endpoint.
-- Edits preserve comments and redirect options, including boolean options explicitly set to `false`.
-- The TUI requires `y` before it applies a plan. Pressing `q` or `Esc` during an apply stops the local wait, but an operation already submitted to Cloudflare may continue. Reopen the TUI or run `cf-redirect list` to check the result.
+## Quick start
 
-## Install
+You need a Cloudflare Bulk Redirect List and an API token with account-level `Account Filter Lists: Edit` permission. If you do not have a list yet, [create a Bulk Redirect List and rule in Cloudflare](https://developers.cloudflare.com/rules/url-forwarding/bulk-redirects/create-dashboard/).
 
-Homebrew works on macOS and Linux:
+### 1. Install
 
 ```sh
 brew install koopycat/tap/cf-redirect
 ```
 
-Prebuilt archives for Linux and macOS on `amd64` and `arm64` are available from [GitHub Releases](https://github.com/koopycat/cf-redirect/releases). Each release includes a `SHA256SUMS` file.
+Homebrew supports macOS and Linux. See [other installation options](#other-installation-options) if you do not use Homebrew.
 
-Building from source requires Go 1.25 or newer:
+### 2. Configure the list
 
-```sh
-go install github.com/koopycat/cf-redirect/cmd/cf-redirect@latest
-# or, from this checkout
-just build
-```
-
-### Publishing a release
-
-Update `internal/version/VERSION`, commit it, and push the matching stable semantic version tag, such as `v1.2.3`. The tagged commit must be on `main`. The release workflow checks the tag against the embedded version, runs the test suite, builds all supported archives, creates checksums, publishes the GitHub release, and updates `koopycat/homebrew-tap`.
-
-Homebrew publishing uses a GitHub App installed only on `homebrew-tap`. Add its credentials as the `HOMEBREW_APP_ID` and `HOMEBREW_APP_PRIVATE_KEY` Actions secrets. Give the app read and write access to repository contents and no other optional repository or organization permissions. The workflow passes the numeric app ID through the action's `client-id` input, which also accepts an OAuth-style client ID.
-
-Protect `v*` tags so that only release maintainers can create, update, or delete them. Protect `main` in both repositories from force pushes and deletion. The workflow pins each action to a reviewed commit and limits the generated installation token to contents access on `homebrew-tap`.
-
-## Configuration
-
-A Bulk Redirects dashboard URL looks like this:
+Copy the account and list IDs from the Cloudflare dashboard URL:
 
 ```text
 https://dash.cloudflare.com/ACCOUNT_ID/example.com/rules/settings/bulk-redirects/redirect-list/LIST_ID/add-redirects
@@ -47,125 +26,79 @@ https://dash.cloudflare.com/ACCOUNT_ID/example.com/rules/settings/bulk-redirects
 
 `ACCOUNT_ID` is the first path segment. `LIST_ID` follows `redirect-list`. The zone between them is only dashboard navigation context because Bulk Redirect Lists belong to the account, not the zone.
 
-Save the IDs and inspect the resolved configuration with:
+Save them locally:
 
 ```sh
 cf-redirect config set \
   --account-id YOUR_ACCOUNT_ID \
   --list-id YOUR_LIST_ID
-cf-redirect config show
 ```
 
-The config file has mode `0600` and is replaced atomically. IDs are resolved in this order:
+### 3. Store the API token
 
-1. `--account-id` and `--list-id`
-2. `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_LIST_ID`
-3. The saved config file
-
-API tokens are resolved from `CLOUDFLARE_API_TOKEN` first, then from the OS keychain. Keychain entries are scoped to the account ID. Login checks that the token can list the configured redirect list before saving it:
+If you need a token, [create a custom Cloudflare API token](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/) with account-level `Account Filter Lists: Edit` permission. Then run:
 
 ```sh
 cf-redirect auth login
-
-# Short aliases
-cf-redirect login
-cf-redirect logout
 ```
 
-To read a token from standard input instead of a command argument:
+The command checks that the token can read the configured list, then stores it in the OS keychain. See [Authentication](docs/authentication.md) for token setup, headless Linux, WSL, containers, and CI.
 
-```sh
-printf '%s' "$TOKEN" | cf-redirect auth login --token-stdin
-```
-
-### Headless Linux and WSL
-
-On Linux, keychain storage uses the Secret Service D-Bus API. It does not require a desktop. On Debian, Ubuntu, or WSL, install a user-session bus, GNOME Keyring, and the optional diagnostic tool:
-
-```sh
-sudo apt update
-sudo apt install dbus-user-session gnome-keyring libsecret-tools
-```
-
-Start a new login session after installation. If the environment does not start a D-Bus user session, open a login shell inside one:
-
-```sh
-test -n "${DBUS_SESSION_BUS_ADDRESS:-}" || exec dbus-run-session -- "$SHELL" -l
-```
-
-A headless session may also need to create or unlock the login keyring. In Bash, this reads the keyring password without echoing it or adding it to shell history:
-
-```bash
-read -rsp 'Keyring password: ' KEYRING_PASSWORD; printf '\n'
-printf '%s' "$KEYRING_PASSWORD" | gnome-keyring-daemon --unlock
-unset KEYRING_PASSWORD
-```
-
-Now run `cf-redirect auth login`. `cf-redirect` does not need `libsecret-tools`, but `secret-tool` can confirm that the token is present without printing it:
-
-```sh
-secret-tool lookup service cf-redirect username cloudflare-api-token:YOUR_ACCOUNT_ID >/dev/null \
-  && echo 'cf-redirect token found'
-```
-
-For CI, containers, and other short-lived sessions, an environment variable is usually simpler than a keyring daemon. Load it from the platform's secret manager rather than putting it in a repository or command argument:
-
-```sh
-export CLOUDFLARE_API_TOKEN="$(your-secret-manager read cloudflare-api-token)"
-cf-redirect list
-```
-
-`config.json` contains only the account and list IDs. `cf-redirect` never writes an API token there. If you cannot inject an environment variable safely, configure a Secret Service provider instead of saving the token as plaintext.
-
-The Cloudflare token needs account-level `Account Filter Lists: Edit` permission. `Read` permission is not enough because add, edit, import, and delete change list items.
-
-The repository includes a helper that opens Cloudflare's token form with the account, token name, and required permission filled in:
-
-```sh
-scripts/create-cloudflare-token \
-  --account-id YOUR_ACCOUNT_ID
-```
-
-Review the form before creating the token, then paste it into the hidden terminal prompt. The helper checks access to the configured list and stores the token in the OS keychain. It does not print the token or pass it as a process argument. Use `--verify-list-id LIST_ID` to check a different list, or `--no-open` to print the form URL. Cloudflare cannot limit this permission to one list, so the token can edit every filter list and Bulk Redirect List in the account.
-
-## Usage
-
-Running `cf-redirect` in an interactive terminal opens the TUI. The same operations are available as commands:
+### 4. Check the connection
 
 ```sh
 cf-redirect list
-cf-redirect list --format json
+```
+
+Run `cf-redirect` with no command to open the TUI:
+
+```sh
+cf-redirect
+```
+
+Preview a change without applying it:
+
+```sh
+cf-redirect add example.com/old/ https://www.example.com/new/ --dry-run
+```
+
+Remove `--dry-run` to review the same plan and confirm it interactively.
+
+## Common commands
+
+| Task | Command |
+| --- | --- |
+| Open the TUI | `cf-redirect` |
+| List redirects | `cf-redirect list` |
+| Search sources, targets, and comments | `cf-redirect search example.com` |
+| Add a redirect | `cf-redirect add <source> <target>` |
+| Change a target | `cf-redirect edit <source> <new-target>` |
+| Change a source and target | `cf-redirect edit <source> <new-target> <new-source>` |
+| Delete by exact source | `cf-redirect delete <source>` |
+| Preview deletion of every redirect | `cf-redirect clear --dry-run` |
+| Import CSV upserts | `cf-redirect import redirects.csv` |
+| Export CSV | `cf-redirect export redirects.csv` |
+
+Run `cf-redirect --help` to see every command, or `cf-redirect <command> --help` for its arguments and flags. Shell completion is available through `cf-redirect completion --help`.
+
+Machine-readable output is available from `list` and `search` with `--format json` or `--format csv`. Other useful commands include `cf-redirect config show`, `cf-redirect auth logout`, and `cf-redirect status <operation-id>`.
+
+## Import and export
+
+Export the configured list to a file:
+
+```sh
 cf-redirect export redirects.csv
+```
+
+Use `-` for standard input or output:
+
+```sh
 cf-redirect export - > redirects.csv
-cf-redirect search example.com
-cf-redirect add example.com/blog/ https://www.example.com/new-blog/
-cf-redirect edit example.com/blog/ --target https://www.example.com/new-blog/
-cf-redirect import redirects.csv
-cf-redirect delete ITEM_ID
-cf-redirect clear
-cf-redirect tui
+cf-redirect import - --dry-run < redirects.csv
 ```
 
-`delete` accepts only a Cloudflare item ID. Use `list --format json` or the TUI to find one. `clear` plans explicit deletions for all current item IDs. CSV import has no sync mode.
-
-A mutating command run without a terminal must use `--yes` or `--dry-run`. Interactive commands show the plan and ask for confirmation. `--dry-run` prints the same plan without applying it.
-
-### Sources and targets
-
-Sources and targets without a path are normalized to `/`:
-
-```text
-https://example.com       -> https://example.com/
-https://www.example.com   -> https://www.example.com/
-```
-
-A source may omit the scheme, as in `example.com/blog/`, which matches both HTTP and HTTPS. A target must be an absolute `http://` or `https://` URL. Sources and targets cannot contain fragments, user information, or control characters.
-
-### CSV export and import
-
-`cf-redirect export redirects.csv` writes every redirect in the configured list to a comma-separated file with a `source,target` header. If the destination already exists, the command replaces it only after the complete export has been written. Use `cf-redirect export -` to write CSV to standard output.
-
-Import accepts commas or semicolons. The `source,target` or `source;target` header is optional:
+Import accepts commas or semicolons. The header is optional:
 
 ```csv
 source,target
@@ -176,40 +109,58 @@ example.com/old/,https://www.example.com/new/
 example.com/old/;https://www.example.com/new/
 ```
 
-A file must use one separator throughout and contain exactly two fields per row. Import matches rows by source and adds or updates them as needed. Rows whose source and target already match are reported as `skipped existing`. Redirects that are absent from the file are left alone and are not counted as skipped.
+A file must use one separator throughout and have exactly two fields per row. Import matches rows by source, then adds or updates them. It reports unchanged rows as `skipped existing`. Redirects missing from the file are left alone.
 
-## Development
+CSV contains only `source` and `target`. It does not preserve comments, status codes, or redirect options, so it is not a full backup. Export replaces an existing destination only after the complete file has been written successfully.
 
-The development shell provides Go 1.25 and `just`:
+## Scripts and CI
 
-```sh
-direnv allow
-# or, without direnv
-devenv shell -- just check
-```
+A mutating command without an interactive terminal must use one of these flags:
 
-Available checks:
+- `--dry-run` prints the plan without applying it.
+- `--yes` applies the plan without asking for confirmation.
 
-```sh
-just check              # formatting, tests, and vet
-just race               # race detector
-just integration-mock   # redirect lifecycle against an in-process HTTP API
-just build
-```
-
-### Integration tests
-
-`just integration-mock` exercises the planner, executor, operation polling, and HTTP client through Go's `httptest.Server`. It needs no credentials, external network access, container runtime, or separate mock server.
-
-The live test runs the same redirect lifecycle against Cloudflare. Use a disposable account and list because it adds, edits, imports, and deletes test redirects. The test leaves unrelated redirects alone.
-
-Give the token read and edit permission for the configured list. Supply it through `CLOUDFLARE_API_TOKEN` or save it in the account-specific OS keychain with `cf-redirect auth login`, then run:
+Pass credentials and list IDs through the environment:
 
 ```sh
-CF_REDIRECT_INTEGRATION=1 \
-CLOUDFLARE_ACCOUNT_ID=... \
-CLOUDFLARE_LIST_ID=... \
-just integration-live
+export CLOUDFLARE_API_TOKEN="$(your-secret-manager read cloudflare-api-token)"
+export CLOUDFLARE_ACCOUNT_ID="YOUR_ACCOUNT_ID"
+export CLOUDFLARE_LIST_ID="YOUR_LIST_ID"
+
+cf-redirect import redirects.csv --dry-run
+cf-redirect import redirects.csv --yes
 ```
 
-The live test will not run unless `CF_REDIRECT_INTEGRATION=1` is set.
+`CLOUDFLARE_API_TOKEN` takes precedence over the OS keychain. Flags take precedence over account and list ID environment variables, which take precedence over the saved config file. See [Authentication](docs/authentication.md) for keychain setup, WSL instructions, and loading credentials from an env file.
+
+## URL behavior
+
+A source may omit the scheme, as in `example.com/blog/`. Cloudflare then matches both HTTP and HTTPS. A target must be an absolute `http://` or `https://` URL. Sources and targets cannot contain fragments, user information, or control characters.
+
+Source matching for edit, delete, and import is exact. Copy the source shown by `cf-redirect list` and use trailing slashes consistently.
+
+## Safety behavior
+
+- Every add, edit, import, delete, and clear operation produces a plan before it runs.
+- CSV import never deletes redirects that are absent from the file. There is no sync mode.
+- Edits preserve comments and redirect options, including options explicitly set to `false`.
+- Updates delete the old item, wait for Cloudflare to finish, and then add the replacement. The client never uses Cloudflare's replace-all endpoint.
+- If an update fails after deletion, the old redirect may already be gone. The error reports a partial apply. Run `cf-redirect list`, then retry or add the redirect again.
+- The TUI requires `y` before applying a plan.
+- Pressing `q` or `Esc` while an operation is running stops the local wait. An operation already sent to Cloudflare may still finish. Reopen the TUI or run `cf-redirect list` to check the result.
+
+## Other installation options
+
+Download a prebuilt archive for Linux or macOS on `amd64` or `arm64` from [GitHub Releases](https://github.com/koopycat/cf-redirect/releases). Each release includes a `SHA256SUMS` file.
+
+To install with Go 1.25 or newer:
+
+```sh
+go install github.com/koopycat/cf-redirect/cmd/cf-redirect@latest
+```
+
+## Documentation
+
+- [Authentication, headless Linux, and WSL](docs/authentication.md)
+- [Contributing, development, and releases](CONTRIBUTING.md)
+- [License](LICENSE)

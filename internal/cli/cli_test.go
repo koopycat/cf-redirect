@@ -153,7 +153,7 @@ func TestLinuxKeyringHelpExplainsHeadlessSetupAndEnvironmentFallback(t *testing.
 	for _, want := range []string{
 		"sudo apt install dbus-user-session gnome-keyring",
 		"CLOUDFLARE_API_TOKEN",
-		"#headless-linux-and-wsl",
+		"docs/authentication.md#headless-linux-and-wsl",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("error %q does not contain %q", got, want)

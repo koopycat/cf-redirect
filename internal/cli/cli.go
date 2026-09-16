@@ -79,7 +79,7 @@ func keyringErrorHelpForOS(err error, goos string) error {
 	}
 	switch goos {
 	case "linux":
-		return fmt.Errorf("%w; Linux keychain access requires a Secret Service provider and D-Bus user session (on Debian, Ubuntu, and WSL: sudo apt install dbus-user-session gnome-keyring, then start a new login session). For headless Linux or WSL, you can set %s instead; see https://github.com/koopycat/cf-redirect#headless-linux-and-wsl", err, auth.TokenEnv)
+		return fmt.Errorf("%w; Linux keychain access requires a Secret Service provider and D-Bus user session (on Debian, Ubuntu, and WSL: sudo apt install dbus-user-session gnome-keyring, then start a new login session). For headless Linux or WSL, you can set %s instead; see https://github.com/koopycat/cf-redirect/blob/main/docs/authentication.md#headless-linux-and-wsl", err, auth.TokenEnv)
 	case "darwin":
 		return fmt.Errorf("%w; ensure the macOS login keychain is available and unlocked, or set %s instead", err, auth.TokenEnv)
 	default:
