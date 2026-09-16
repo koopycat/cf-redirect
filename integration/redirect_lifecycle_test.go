@@ -50,7 +50,7 @@ func TestRedirectLifecycleAgainstMockCloudflare(t *testing.T) {
 	}
 	exerciseRedirectLifecycle(t, client, mock.accountID, mock.listID)
 
-	wantMethods := []string{http.MethodPost, http.MethodDelete, http.MethodPost, http.MethodDelete}
+	wantMethods := []string{http.MethodPost, http.MethodPost, http.MethodDelete}
 	if got := mock.mutations(); !slices.Equal(got, wantMethods) {
 		t.Fatalf("mutation methods = %v, want %v", got, wantMethods)
 	}
@@ -77,7 +77,7 @@ func TestBulkEditPreserveQueryStringAgainstMockCloudflare(t *testing.T) {
 		t.Fatalf("plan = %#v", plan)
 	}
 	report := applyPlan(t, ctx, client, mock.accountID, mock.listID, plan)
-	assertCompletedPhases(t, report, app.DeletePhase, app.CreatePhase)
+	assertCompletedPhases(t, report, app.CreatePhase)
 
 	after := listRedirects(t, ctx, client, mock.accountID, mock.listID)
 	enabled := redirectBySource(t, after, "enabled.example.com/")
@@ -88,7 +88,7 @@ func TestBulkEditPreserveQueryStringAgainstMockCloudflare(t *testing.T) {
 	if !updated.PreserveQueryString || updated.StatusCode != 308 || updated.Comment != "preserve this" {
 		t.Fatalf("bulk edit lost redirect content: %#v", updated)
 	}
-	if got, want := mock.mutations(), []string{http.MethodDelete, http.MethodPost}; !slices.Equal(got, want) {
+	if got, want := mock.mutations(), []string{http.MethodPost}; !slices.Equal(got, want) {
 		t.Fatalf("mutation methods = %v, want %v", got, want)
 	}
 }
@@ -167,7 +167,7 @@ func exerciseRedirectLifecycle(t *testing.T, client *cloudflare.Client, accountI
 		t.Fatalf("plan update: %v", err)
 	}
 	updateReport := applyPlan(t, ctx, api, accountID, listID, updatePlan)
-	assertCompletedPhases(t, updateReport, app.DeletePhase, app.CreatePhase)
+	assertCompletedPhases(t, updateReport, app.CreatePhase)
 
 	afterUpdate := listRedirects(t, ctx, client, accountID, listID)
 	assertBaselineUnchanged(t, afterUpdate, baseline)
@@ -178,7 +178,7 @@ func exerciseRedirectLifecycle(t *testing.T, client *cloudflare.Client, accountI
 	if updated.ID == "" {
 		t.Fatal("updated redirect has no Cloudflare item ID")
 	}
-	t.Logf("[2/3] update verified; replacement item ID is %s and all options were preserved", updated.ID)
+	t.Logf("[2/3] in-place update verified; item ID is %s and all options were preserved", updated.ID)
 
 	t.Log("[3/3] deleting the temporary redirect by explicit item ID…")
 	deletePlan, err := planner.DeleteRedirect([]domain.Redirect{updated}, updated.ID)
@@ -439,9 +439,20 @@ func (m *mockCloudflareAPI) handleItems(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		for i := range items {
-			m.nextID++
-			items[i].ID = fmt.Sprintf("item-%d", m.nextID)
-			m.items = append(m.items, items[i])
+			replaced := false
+			for j := range m.items {
+				if m.items[j].Redirect.SourceURL == items[i].Redirect.SourceURL {
+					items[i].ID = m.items[j].ID
+					m.items[j] = items[i]
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				m.nextID++
+				items[i].ID = fmt.Sprintf("item-%d", m.nextID)
+				m.items = append(m.items, items[i])
+			}
 		}
 		m.writeMutation(w)
 	case http.MethodDelete:

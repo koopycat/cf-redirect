@@ -23,10 +23,10 @@ Use `go` through the project commands inside the devenv shell. Do not add a Clou
 - Never persist, print, or log Cloudflare API tokens outside the OS keychain. Environment token precedence is `CLOUDFLARE_API_TOKEN`, then the account-specific keychain entry.
 - The configured account and list IDs are explicit on every API operation.
 - CSV import only adds or updates. Missing CSV rows never cause deletions. There is no sync mode.
-- Never use Cloudflare's replace-all `PUT /items` endpoint.
+- Never use Cloudflare's replace-all `PUT /items` endpoint. Use `POST /items` to update entries in place by source; Cloudflare replaces an existing source without deleting it. Do not rely on item IDs remaining stable after an upsert.
 - Every mutation is planned and shown before apply. Non-interactive mutation requires `--yes` or `--dry-run`.
 - Delete requests must always contain explicit item IDs in `{\"items\":[{\"id\":...}]}`.
 - Item listing uses Cloudflare cursor pagination (`per_page=500`) and must reject repeated cursors.
 - Cloudflare mutations are asynchronous. Poll each operation to completion before submitting a dependent operation.
-- Preserve redirect options and comments when editing existing entries.
+- Preserve redirect options and comments when editing existing entries. Do not delete first when the source is unchanged; use Cloudflare's `POST /items` upsert to avoid a redirect availability gap.
 - Keep domain, planner, and application logic independent from Cobra and Bubble Tea.

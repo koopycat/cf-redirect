@@ -100,9 +100,10 @@ func (e Executor) report(message string) {
 	}
 }
 
-// Apply fetches fresh list state, proves that the planned assumptions still
-// hold, then explicitly deletes removed and superseded entries. It waits for
-// that operation before creating additions and update replacements.
+// Apply fetches fresh list state and proves that the planned assumptions still
+// hold. Updates whose source is unchanged are sent directly through Cloudflare's
+// POST upsert behavior, avoiding a gap in redirect coverage. Source-changing
+// updates and explicit deletes still remove their old item IDs first.
 func (e Executor) Apply(ctx context.Context, plan planner.Plan) (Report, error) {
 	report := Report{}
 	if e.API == nil {
@@ -351,7 +352,12 @@ func split(plan planner.Plan) ([]string, []domain.Redirect) {
 			created.ID = ""
 			creates = append(creates, created)
 		case planner.Update:
-			deleteIDs = append(deleteIDs, change.Before.ID)
+			// Cloudflare POST replaces an existing list entry with the same
+			// source without deleting it first. Only a source rename needs the
+			// old item removed explicitly.
+			if change.Before.Source != change.After.Source {
+				deleteIDs = append(deleteIDs, change.Before.ID)
+			}
 			created := *change.After
 			created.ID = ""
 			creates = append(creates, created)

@@ -338,7 +338,7 @@ func makeMutation(cmd *cobra.Command, o *options, dryRun, yes bool, createPlan f
 			}
 		}
 		var execErr *app.ExecutionError
-		if errors.As(err, &execErr) {
+		if errors.As(err, &execErr) && execErr.Report.Partial() {
 			fmt.Fprintln(cmd.ErrOrStderr(), "The plan may be partially applied; run cf-redirect list to verify.")
 		}
 		var apiErr *cloudflare.APIError

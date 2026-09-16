@@ -148,7 +148,8 @@ Source matching for edit, delete, and import is exact. Copy the source shown by 
 - New redirects preserve the original request's query string by default.
 - `edit-all --preserve-query-string[=true|false]` changes that option for every redirect in the configured list while preserving all other fields.
 - Individual edits preserve comments and redirect options, including options explicitly set to `false`.
-- Updates delete the old item, wait for Cloudflare to finish, and then add the replacement. The client never uses Cloudflare's replace-all endpoint.
+- Updates with an unchanged source use Cloudflare's append/upsert operation, so the redirect remains available while its options or target change. Source renames delete the old item before creating the replacement.
+- The client never uses Cloudflare's replace-all endpoint.
 - Large mutations run in batches and show live batch/operation progress. If Cloudflare returns HTTP 429, the rejected batch waits and retries automatically; the status includes the retry countdown and attempt number.
 - If an update fails after deletion, the old redirect may already be gone. The error reports a partial apply. Run `cf-redirect list`, then retry or add the redirect again.
 - The TUI requires `y` before applying a plan.

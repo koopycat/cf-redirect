@@ -60,7 +60,7 @@ func oldItem() domain.Redirect {
 	return domain.Redirect{ID: "old-id", Source: "https://old.example", Target: "https://target.example/old", StatusCode: 308, PreserveQueryString: true, Comment: "keep"}
 }
 
-func TestExecutorDeletesUpdatesThenWaitsThenCreates(t *testing.T) {
+func TestExecutorUpsertsUpdatesWithUnchangedSourcesWithoutDeleting(t *testing.T) {
 	old := oldItem()
 	after := old
 	after.Target = "https://target.example/new"
@@ -74,15 +74,31 @@ func TestExecutorDeletesUpdatesThenWaitsThenCreates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantCalls := []string{"list", "delete", "wait-delete-op-1", "create", "wait-create-op"}
+	wantCalls := []string{"list", "create", "wait-create-op"}
 	if !reflect.DeepEqual(api.calls, wantCalls) {
 		t.Fatalf("calls = %v, want %v", api.calls, wantCalls)
 	}
-	if !reflect.DeepEqual(api.deleted, []string{"old-id"}) || len(api.created) != 2 || api.created[0].ID != "" || !api.created[0].PreserveQueryString || api.created[0].Comment != "keep" || !api.created[1].PreserveQueryString {
+	if len(api.deleted) != 0 || len(api.created) != 2 || api.created[0].ID != "" || !api.created[0].PreserveQueryString || api.created[0].Comment != "keep" || !api.created[1].PreserveQueryString {
 		t.Fatalf("bad requests: deleted=%v created=%#v", api.deleted, api.created)
 	}
-	if len(report.Phases) != 2 || !report.Phases[0].Completed || !report.Phases[1].Completed {
+	if len(report.Phases) != 1 || report.Phases[0].Phase != CreatePhase || !report.Phases[0].Completed {
 		t.Fatalf("unexpected report: %#v", report)
+	}
+}
+
+func TestExecutorDeletesSourceChangingUpdateBeforeCreating(t *testing.T) {
+	old := oldItem()
+	after := old
+	after.Source = "https://new.example"
+	plan := planner.Plan{Changes: []planner.Change{{Kind: planner.Update, Before: &old, After: &after}}}
+	api := &fakeAPI{current: []domain.Redirect{old}, waitError: map[string]error{}}
+	_, err := (Executor{API: api, AccountID: "account", ListID: "list"}).Apply(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCalls := []string{"list", "delete", "wait-delete-op-1", "create", "wait-create-op"}
+	if !reflect.DeepEqual(api.calls, wantCalls) || !reflect.DeepEqual(api.deleted, []string{"old-id"}) {
+		t.Fatalf("calls = %v, deleted = %v", api.calls, api.deleted)
 	}
 }
 
@@ -214,7 +230,7 @@ func TestExecutorDoesNotRetryNonRateLimitMutationFailure(t *testing.T) {
 func TestExecutorReportsPartialFailure(t *testing.T) {
 	old := oldItem()
 	after := old
-	after.Target = "https://target.example/new"
+	after.Source = "https://new.example"
 	plan := planner.Plan{Changes: []planner.Change{{Kind: planner.Update, Before: &old, After: &after}}}
 	api := &fakeAPI{current: []domain.Redirect{old}, waitError: map[string]error{"create-op": errors.New("create failed")}}
 	report, err := (Executor{API: api, AccountID: "account", ListID: "list"}).Apply(context.Background(), plan)
