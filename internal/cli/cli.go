@@ -297,7 +297,15 @@ func makeMutation(cmd *cobra.Command, o *options, dryRun, yes bool, createPlan f
 			return nil
 		}
 	}
-	report, err := (app.Executor{API: api, AccountID: cfg.AccountID, ListID: cfg.ListID, PollInterval: cloudflare.DefaultBulkPollInterval}).Apply(cmd.Context(), plan)
+	interactiveProgress, progressWidth := progressTerminal(cmd)
+	progress := newProgressDisplay(cmd.ErrOrStderr(), interactiveProgress, progressWidth)
+	progress.Start("Starting apply…")
+	report, err := (app.Executor{
+		API: api, AccountID: cfg.AccountID, ListID: cfg.ListID,
+		PollInterval: cloudflare.DefaultBulkPollInterval, Progress: progress.Update,
+		LiveProgress: interactiveProgress,
+	}).Apply(cmd.Context(), plan)
+	progress.Stop()
 	if err != nil {
 		// Print every phase result so a failure is diagnosable instead of a
 		// single terse error line, and include recovery hints.
@@ -353,6 +361,18 @@ func isTerminal(cmd *cobra.Command) bool {
 	i, iok := in.(*os.File)
 	o, ook := out.(*os.File)
 	return iok && ook && term.IsTerminal(i.Fd()) && term.IsTerminal(o.Fd())
+}
+
+func progressTerminal(cmd *cobra.Command) (bool, int) {
+	file, ok := cmd.ErrOrStderr().(*os.File)
+	if !ok || !term.IsTerminal(file.Fd()) {
+		return false, 0
+	}
+	width, _, err := term.GetSize(file.Fd())
+	if err != nil {
+		return true, 0
+	}
+	return true, width
 }
 
 // readPasswordInteractive prompts on stderr and reads a hidden value from the

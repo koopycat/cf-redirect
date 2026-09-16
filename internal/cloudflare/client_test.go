@@ -134,6 +134,22 @@ func TestRetryAfterIsHonoredWithoutJitter(t *testing.T) {
 	}
 }
 
+func TestAPIErrorRetainsRetryAfterForCallerManagedMutationRetry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "37")
+		w.WriteHeader(http.StatusTooManyRequests)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "errors": []any{map[string]any{"code": 10040, "message": "rate limited"}}})
+	}))
+	defer server.Close()
+	client := Client{HTTPClient: server.Client(), BaseURL: server.URL}
+
+	_, err := client.CreateItems(context.Background(), "account", "list", []domain.Redirect{domain.New("https://a.example", "https://b.example")})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !apiErr.HasRetryAfter || apiErr.RetryAfter != 37*time.Second {
+		t.Fatalf("rate-limit metadata = %#v, err %v", apiErr, err)
+	}
+}
+
 func TestDoDoesNotRetryAuthFailure(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

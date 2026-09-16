@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +20,8 @@ type fakeAPI struct {
 	deleted       []string
 	deleteBatches [][]string
 	created       []domain.Redirect
+	createErrors  []error
+	createCalls   int
 	waitError     map[string]error
 }
 
@@ -34,6 +37,14 @@ func (f *fakeAPI) DeleteItems(_ context.Context, _, _ string, ids []string) (clo
 }
 func (f *fakeAPI) CreateItems(_ context.Context, _, _ string, items []domain.Redirect) (cloudflare.BulkOperation, error) {
 	f.calls = append(f.calls, "create")
+	f.createCalls++
+	if len(f.createErrors) > 0 {
+		err := f.createErrors[0]
+		f.createErrors = f.createErrors[1:]
+		if err != nil {
+			return cloudflare.BulkOperation{}, err
+		}
+	}
 	f.created = append(f.created, items...)
 	return cloudflare.BulkOperation{ID: "create-op", Status: "pending"}, nil
 }
@@ -130,6 +141,73 @@ func TestExecutorBatchesLargeCreatesAndWaitsBetweenBatches(t *testing.T) {
 	}
 	if len(api.created) != mutationBatchSize+1 || len(report.Phases) != 2 || report.Phases[0].Requested != mutationBatchSize || report.Phases[1].Requested != 1 {
 		t.Fatalf("created=%d report=%#v", len(api.created), report)
+	}
+}
+
+func TestExecutorRetriesRateLimitedMutationAndReportsLiveWait(t *testing.T) {
+	item := domain.New("https://source.example", "https://target.example")
+	rateLimit := &cloudflare.APIError{StatusCode: 429, HasRetryAfter: true}
+	api := &fakeAPI{createErrors: []error{rateLimit}, waitError: map[string]error{}}
+	var progress []string
+
+	report, err := (Executor{
+		API: api, AccountID: "account", ListID: "list", RateLimitBaseDelay: time.Nanosecond,
+		Progress: func(message string) { progress = append(progress, message) },
+	}).Apply(context.Background(), planner.Plan{Changes: []planner.Change{{Kind: planner.Add, After: &item}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if api.createCalls != 2 || len(api.created) != 1 || len(report.Phases) != 1 || !report.Phases[0].Completed {
+		t.Fatalf("retry result: calls=%d created=%d report=%#v", api.createCalls, len(api.created), report)
+	}
+	joined := strings.Join(progress, "\n")
+	for _, want := range []string{"rate limit reached", "retrying batch 1/1", "attempt 2/8"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("progress %q does not contain %q", joined, want)
+		}
+	}
+}
+
+func TestExecutorRateLimitWaitCanBeCancelled(t *testing.T) {
+	item := domain.New("https://source.example", "https://target.example")
+	rateLimit := &cloudflare.APIError{StatusCode: 429, HasRetryAfter: true, RetryAfter: time.Minute}
+	api := &fakeAPI{createErrors: []error{rateLimit}, waitError: map[string]error{}}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := (Executor{API: api, AccountID: "account", ListID: "list"}).Apply(
+		ctx, planner.Plan{Changes: []planner.Change{{Kind: planner.Add, After: &item}}},
+	)
+	if !errors.Is(err, context.Canceled) || api.createCalls != 1 {
+		t.Fatalf("cancelled retry: calls=%d err=%v", api.createCalls, err)
+	}
+}
+
+func TestExecutorStopsAfterRateLimitRetryBudget(t *testing.T) {
+	item := domain.New("https://source.example", "https://target.example")
+	errors429 := make([]error, defaultRateLimitAttempts)
+	for i := range errors429 {
+		errors429[i] = &cloudflare.APIError{StatusCode: 429, HasRetryAfter: true}
+	}
+	api := &fakeAPI{createErrors: errors429, waitError: map[string]error{}}
+
+	_, err := (Executor{API: api, AccountID: "account", ListID: "list"}).Apply(
+		context.Background(), planner.Plan{Changes: []planner.Change{{Kind: planner.Add, After: &item}}},
+	)
+	var apiErr *cloudflare.APIError
+	if !errors.As(err, &apiErr) || api.createCalls != defaultRateLimitAttempts {
+		t.Fatalf("exhausted retry: calls=%d err=%v", api.createCalls, err)
+	}
+}
+
+func TestExecutorDoesNotRetryNonRateLimitMutationFailure(t *testing.T) {
+	item := domain.New("https://source.example", "https://target.example")
+	api := &fakeAPI{createErrors: []error{&cloudflare.APIError{StatusCode: 503}}, waitError: map[string]error{}}
+	_, err := (Executor{API: api, AccountID: "account", ListID: "list"}).Apply(
+		context.Background(), planner.Plan{Changes: []planner.Change{{Kind: planner.Add, After: &item}}},
+	)
+	if err == nil || api.createCalls != 1 {
+		t.Fatalf("non-rate-limit failure: calls=%d err=%v", api.createCalls, err)
 	}
 }
 

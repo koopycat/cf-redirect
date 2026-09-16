@@ -24,14 +24,28 @@ type RedirectAPI interface {
 // with the largest page this client reads from Cloudflare at once.
 const mutationBatchSize = 500
 
+const (
+	defaultRateLimitAttempts  = 8
+	defaultRateLimitBaseDelay = 5 * time.Second
+	defaultRateLimitMaxDelay  = time.Minute
+	maxServerRetryAfter       = 5 * time.Minute
+)
+
 type Executor struct {
 	API          RedirectAPI
 	AccountID    string
 	ListID       string
 	PollInterval time.Duration
+	// RateLimitBaseDelay overrides the initial mutation retry delay. It is
+	// primarily useful for deterministic callers and tests; zero uses 5s.
+	RateLimitBaseDelay time.Duration
 	// Progress, when non-nil, receives a short human-readable message at each
 	// stage of an apply so live UIs can show what is happening while waiting.
 	Progress func(message string)
+	// LiveProgress enables countdown updates while waiting out a rate limit.
+	// Line-oriented callers should leave it false to receive one message per
+	// meaningful state transition instead of one message per second.
+	LiveProgress bool
 }
 
 type Phase string
@@ -119,7 +133,9 @@ func (e Executor) Apply(ctx context.Context, plan planner.Plan) (Report, error) 
 		batchCount := (len(deleteIDs) + mutationBatchSize - 1) / mutationBatchSize
 		e.report(fmt.Sprintf("delete phase: removing batch %d/%d (%d item(s))…", batchNumber, batchCount, len(batch)))
 		result := PhaseResult{Phase: DeletePhase, Requested: len(batch)}
-		operation, err := e.API.DeleteItems(ctx, e.AccountID, e.ListID, batch)
+		operation, err := e.mutateWithRateLimitRetry(ctx, DeletePhase, batchNumber, batchCount, func() (cloudflare.BulkOperation, error) {
+			return e.API.DeleteItems(ctx, e.AccountID, e.ListID, batch)
+		})
 		result.Operation = operation
 		if err == nil {
 			if operation.ID != "" {
@@ -144,7 +160,9 @@ func (e Executor) Apply(ctx context.Context, plan planner.Plan) (Report, error) 
 		batchCount := (len(creates) + mutationBatchSize - 1) / mutationBatchSize
 		e.report(fmt.Sprintf("create phase: adding batch %d/%d (%d item(s))…", batchNumber, batchCount, len(batch)))
 		result := PhaseResult{Phase: CreatePhase, Requested: len(batch)}
-		operation, err := e.API.CreateItems(ctx, e.AccountID, e.ListID, batch)
+		operation, err := e.mutateWithRateLimitRetry(ctx, CreatePhase, batchNumber, batchCount, func() (cloudflare.BulkOperation, error) {
+			return e.API.CreateItems(ctx, e.AccountID, e.ListID, batch)
+		})
 		result.Operation = operation
 		if err == nil {
 			if operation.ID != "" {
@@ -162,6 +180,79 @@ func (e Executor) Apply(ctx context.Context, plan planner.Plan) (Report, error) 
 		report.Phases = append(report.Phases, result)
 	}
 	return report, nil
+}
+
+// mutateWithRateLimitRetry only replays requests Cloudflare explicitly rejected
+// with HTTP 429. Ambiguous network and 5xx failures are not replayed because a
+// mutation may already have reached Cloudflare.
+func (e Executor) mutateWithRateLimitRetry(
+	ctx context.Context,
+	phase Phase,
+	batchNumber, batchCount int,
+	mutate func() (cloudflare.BulkOperation, error),
+) (cloudflare.BulkOperation, error) {
+	for attempt := 1; attempt <= defaultRateLimitAttempts; attempt++ {
+		operation, err := mutate()
+		if err == nil {
+			return operation, nil
+		}
+		var apiErr *cloudflare.APIError
+		if !errors.As(err, &apiErr) || apiErr.StatusCode != 429 || attempt == defaultRateLimitAttempts {
+			return operation, err
+		}
+
+		delay := e.rateLimitDelay(apiErr, attempt)
+		e.report(fmt.Sprintf("%s phase: Cloudflare rate limit reached; retrying batch %d/%d in %s (attempt %d/%d)…", phase, batchNumber, batchCount, formatWait(delay), attempt+1, defaultRateLimitAttempts))
+		if err := e.waitForRateLimit(ctx, phase, batchNumber, batchCount, attempt+1, delay); err != nil {
+			return operation, err
+		}
+	}
+	panic("unreachable")
+}
+
+func formatWait(delay time.Duration) time.Duration {
+	if delay <= 0 {
+		return 0
+	}
+	return max(time.Second, delay.Round(time.Second))
+}
+
+func (e Executor) rateLimitDelay(apiErr *cloudflare.APIError, failedAttempt int) time.Duration {
+	if apiErr.HasRetryAfter {
+		return min(apiErr.RetryAfter, maxServerRetryAfter)
+	}
+	base := e.RateLimitBaseDelay
+	if base <= 0 {
+		base = defaultRateLimitBaseDelay
+	}
+	delay := base << (failedAttempt - 1)
+	return min(delay, defaultRateLimitMaxDelay)
+}
+
+func (e Executor) waitForRateLimit(
+	ctx context.Context,
+	phase Phase,
+	batchNumber, batchCount, nextAttempt int,
+	delay time.Duration,
+) error {
+	deadline := time.Now().Add(delay)
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			e.report(fmt.Sprintf("%s phase: rate limit cleared; retrying batch %d/%d (attempt %d/%d)…", phase, batchNumber, batchCount, nextAttempt, defaultRateLimitAttempts))
+			return nil
+		}
+		if e.LiveProgress {
+			e.report(fmt.Sprintf("%s phase: Cloudflare rate limit reached; retrying batch %d/%d in %s (attempt %d/%d)…", phase, batchNumber, batchCount, formatWait(remaining), nextAttempt, defaultRateLimitAttempts))
+		}
+		timer := time.NewTimer(min(remaining, time.Second))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // Revalidate detects stale plans and malformed externally constructed plans.

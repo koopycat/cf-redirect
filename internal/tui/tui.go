@@ -234,6 +234,7 @@ func (m model) apply(ctx context.Context) tea.Cmd {
 			ListID:       m.listID,
 			PollInterval: cloudflare.DefaultBulkPollInterval,
 			Progress:     progress.set,
+			LiveProgress: true,
 		}
 		_, err := executor.Apply(ctx, plan)
 		return appliedMsg{err}

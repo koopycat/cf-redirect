@@ -229,6 +229,38 @@ func TestWriteCSVFileCreatesAndAtomicallyReplacesExport(t *testing.T) {
 	}
 }
 
+func TestProgressDisplayWritesStableUpdatesForNonTerminalOutput(t *testing.T) {
+	var output bytes.Buffer
+	progress := newProgressDisplay(&output, false, 0)
+	progress.Start("Starting apply…")
+	progress.Update("create phase: adding batch 4/10 (500 item(s))…")
+	progress.Update("create phase: Cloudflare rate limit reached; retrying batch 5/10 in 30s…")
+	progress.Stop()
+
+	got := output.String()
+	for _, want := range []string{"Starting apply…\n", "batch 4/10", "rate limit reached"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("progress output %q does not contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "\r") || strings.Contains(got, "\x1b") {
+		t.Fatalf("non-terminal progress contains control sequences: %q", got)
+	}
+}
+
+func TestProgressDisplayAnimatesAndClearsInteractiveLine(t *testing.T) {
+	var output bytes.Buffer
+	progress := newProgressDisplay(&output, true, 80)
+	progress.Start("create phase: adding batch 4/10 (500 item(s))…")
+	progress.Update("create phase: waiting for operation op-123…")
+	progress.Stop()
+
+	got := output.String()
+	if !strings.Contains(got, "\r\x1b[2K") || !strings.Contains(got, "waiting for operation") {
+		t.Fatalf("interactive progress output = %q", got)
+	}
+}
+
 func TestRootIncludesRequiredCommands(t *testing.T) {
 	root := NewRootCmd()
 	for _, name := range []string{"list", "search", "export", "add", "edit", "delete", "clear", "import", "config", "auth", "login", "logout", "status", "tui"} {

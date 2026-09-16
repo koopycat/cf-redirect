@@ -32,9 +32,11 @@ type Client struct {
 }
 
 type APIError struct {
-	StatusCode int
-	Errors     []Message
-	Body       string
+	StatusCode    int
+	Errors        []Message
+	Body          string
+	RetryAfter    time.Duration
+	HasRetryAfter bool
 }
 
 func (e *APIError) Error() string {
@@ -335,7 +337,7 @@ func doJSON[T any](ctx context.Context, c *Client, method, path string, body any
 			continue
 		}
 		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return zero, apiError(response.StatusCode, payload)
+			return zero, apiError(response.StatusCode, payload, response.Header)
 		}
 
 		var result envelope[T]
@@ -361,12 +363,16 @@ func readResponse(body io.ReadCloser) ([]byte, error) {
 	return payload, nil
 }
 
-func apiError(statusCode int, payload []byte) *APIError {
+func apiError(statusCode int, payload []byte, header http.Header) *APIError {
 	var failed struct {
 		Errors []Message `json:"errors"`
 	}
 	_ = json.Unmarshal(payload, &failed)
-	return &APIError{StatusCode: statusCode, Errors: safeMessages(failed.Errors), Body: safeBody(payload)}
+	retryAfter, hasRetryAfter := parseRetryAfter(header)
+	return &APIError{
+		StatusCode: statusCode, Errors: safeMessages(failed.Errors), Body: safeBody(payload),
+		RetryAfter: retryAfter, HasRetryAfter: hasRetryAfter,
+	}
 }
 
 func safeMessages(messages []Message) []Message {
@@ -399,30 +405,36 @@ func retryable(status int) bool {
 // Retry-After value is honored as-is (subject to the maximum wait); otherwise
 // a jittered exponential delay avoids synchronized bursts.
 func backoffFor(h http.Header, attempt int) time.Duration {
-	if value := h.Get("Retry-After"); value != "" {
-		if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
-			hint := time.Duration(seconds) * time.Second
-			if hint > maxBackoff {
-				return maxBackoff
-			}
-			return hint
+	if hint, ok := parseRetryAfter(h); ok {
+		if hint > maxBackoff {
+			return maxBackoff
 		}
-		if when, err := http.ParseTime(value); err == nil {
-			hint := time.Until(when)
-			if hint < 0 {
-				hint = 0
-			}
-			if hint > maxBackoff {
-				return maxBackoff
-			}
-			return hint
-		}
+		return hint
 	}
 	delay := baseBackoff << attempt
 	if delay > maxBackoff {
 		delay = maxBackoff
 	}
 	return delay + time.Duration(rand.Int64N(int64(delay/4)))
+}
+
+func parseRetryAfter(h http.Header) (time.Duration, bool) {
+	value := h.Get("Retry-After")
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.Atoi(value); err == nil && seconds >= 0 {
+		return time.Duration(seconds) * time.Second, true
+	}
+	when, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	hint := time.Until(when)
+	if hint < 0 {
+		hint = 0
+	}
+	return hint, true
 }
 
 // sleep waits for d, aborting early when the context is cancelled.
