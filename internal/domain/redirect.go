@@ -24,9 +24,15 @@ type Redirect struct {
 	Comment             string
 }
 
-// New creates a redirect with safe defaults.
+// New creates a redirect with safe defaults, including preservation of the
+// original request's query string.
 func New(source, target string) Redirect {
-	return Redirect{Source: source, Target: target, StatusCode: DefaultStatusCode}
+	return Redirect{
+		Source:              source,
+		Target:              target,
+		StatusCode:          DefaultStatusCode,
+		PreserveQueryString: true,
+	}
 }
 
 // Validate checks the constraints that can be checked without contacting

@@ -109,7 +109,7 @@ example.com/old/,https://www.example.com/new/
 example.com/old/;https://www.example.com/new/
 ```
 
-A file must use one separator throughout and have exactly two fields per row. Import matches rows by source, then adds or updates them. It reports unchanged rows as `skipped existing`. Redirects missing from the file are left alone.
+A file must use one separator throughout and have exactly two fields per row. Import matches rows by source, then adds or updates them. New redirects always enable Cloudflare's **Preserve query string** option. Existing redirects retain their current options when updated. Import reports unchanged rows as `skipped existing`, and redirects missing from the file are left alone.
 
 CSV contains only `source` and `target`. It does not preserve comments, status codes, or redirect options, so it is not a full backup. Export replaces an existing destination only after the complete file has been written successfully.
 
@@ -143,6 +143,7 @@ Source matching for edit, delete, and import is exact. Copy the source shown by 
 
 - Every add, edit, import, delete, and clear operation produces a plan before it runs.
 - CSV import never deletes redirects that are absent from the file. There is no sync mode.
+- New redirects preserve the original request's query string by default.
 - Edits preserve comments and redirect options, including options explicitly set to `false`.
 - Updates delete the old item, wait for Cloudflare to finish, and then add the replacement. The client never uses Cloudflare's replace-all endpoint.
 - If an update fails after deletion, the old redirect may already be gone. The error reports a partial apply. Run `cf-redirect list`, then retry or add the redirect again.

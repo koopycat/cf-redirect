@@ -11,8 +11,8 @@ func TestReadStrictCSV(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 1 || items[0].StatusCode != 301 {
-		t.Fatalf("unexpected items: %#v", items)
+	if len(items) != 1 || items[0].StatusCode != 301 || !items[0].PreserveQueryString {
+		t.Fatalf("CSV imports must enable preserve query string: %#v", items)
 	}
 
 	bad := []string{

@@ -29,6 +29,13 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestNewEnablesPreserveQueryString(t *testing.T) {
+	redirect := New("https://example.com/a", "https://new.example/a")
+	if !redirect.PreserveQueryString {
+		t.Fatal("new redirects must preserve the original query string")
+	}
+}
+
 func TestEqualContentNormalizesDefaultStatusAndIgnoresID(t *testing.T) {
 	a := Redirect{ID: "one", Source: "https://a.example", Target: "https://b.example"}
 	b := a

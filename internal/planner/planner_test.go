@@ -33,6 +33,14 @@ func TestAddAndExplicitDelete(t *testing.T) {
 	if _, err := AddRedirect([]domain.Redirect{old}, domain.New(old.Source, "https://other.example")); err == nil {
 		t.Fatal("expected duplicate source error")
 	}
+	add := domain.Redirect{Source: "https://added.example", Target: "https://target.example", StatusCode: 301}
+	addPlan, err := AddRedirect([]domain.Redirect{old}, add)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !addPlan.Changes[0].After.PreserveQueryString {
+		t.Fatal("every redirect addition must preserve query strings")
+	}
 	plan, err := DeleteRedirect([]domain.Redirect{old}, old.ID)
 	if err != nil || plan.Changes[0].Before.ID != old.ID {
 		t.Fatalf("unexpected delete plan: %#v, %v", plan, err)
@@ -89,6 +97,9 @@ func TestImportUpsertPreservesExistingAndNeverDeletesOmitted(t *testing.T) {
 		t.Fatalf("counts = %d,%d,%d, skipped=%d", adds, updates, deletes, plan.SkippedExisting)
 	}
 	for _, change := range plan.Changes {
+		if change.Kind == Add && !change.After.PreserveQueryString {
+			t.Fatalf("imported addition must preserve query strings: %#v", change.After)
+		}
 		if change.Kind == Update {
 			if change.After.Comment != old.Comment || change.After.StatusCode != old.StatusCode || !change.After.PreservePathSuffix {
 				t.Fatalf("upsert lost options: %#v", change.After)

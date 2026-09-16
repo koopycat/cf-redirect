@@ -82,8 +82,8 @@ func TestCreateAndDeleteUseOnlyPOSTAndDELETE(t *testing.T) {
 		if r.Method == http.MethodPost {
 			body, ok := raw.([]any)
 			redirect := body[0].(map[string]any)["redirect"].(map[string]any)
-			if !ok || len(redirect) != 7 || redirect["include_subdomains"] != false || redirect["subpath_matching"] != false || redirect["preserve_query_string"] != false || redirect["preserve_path_suffix"] != false {
-				t.Errorf("create must explicitly preserve booleans: %#v", raw)
+			if !ok || len(redirect) != 7 || redirect["include_subdomains"] != false || redirect["subpath_matching"] != false || redirect["preserve_query_string"] != true || redirect["preserve_path_suffix"] != false {
+				t.Errorf("create must explicitly send redirect options: %#v", raw)
 			}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"success": true, "result": map[string]any{"id": "operation", "status": "pending"}})

@@ -67,7 +67,7 @@ func TestExecutorDeletesUpdatesThenWaitsThenCreates(t *testing.T) {
 	if !reflect.DeepEqual(api.calls, wantCalls) {
 		t.Fatalf("calls = %v, want %v", api.calls, wantCalls)
 	}
-	if !reflect.DeepEqual(api.deleted, []string{"old-id"}) || len(api.created) != 2 || api.created[0].ID != "" || !api.created[0].PreserveQueryString || api.created[0].Comment != "keep" {
+	if !reflect.DeepEqual(api.deleted, []string{"old-id"}) || len(api.created) != 2 || api.created[0].ID != "" || !api.created[0].PreserveQueryString || api.created[0].Comment != "keep" || !api.created[1].PreserveQueryString {
 		t.Fatalf("bad requests: deleted=%v created=%#v", api.deleted, api.created)
 	}
 	if len(report.Phases) != 2 || !report.Phases[0].Completed || !report.Phases[1].Completed {

@@ -53,6 +53,7 @@ func AddRedirect(current []domain.Redirect, redirect domain.Redirect) (Plan, err
 	if err := validateCurrent(current); err != nil {
 		return Plan{}, err
 	}
+	redirect.PreserveQueryString = true
 	if err := redirect.Validate(); err != nil {
 		return Plan{}, err
 	}
@@ -132,6 +133,7 @@ func ImportUpsert(current []domain.Redirect, imported []domain.Redirect) (Plan, 
 		old := findBySource(current, candidate.Source)
 		if old == nil {
 			candidate.ID = ""
+			candidate.PreserveQueryString = true
 			plan.Changes = append(plan.Changes, Change{Kind: Add, After: pointer(candidate)})
 			continue
 		}
