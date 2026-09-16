@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Generate random, unique redirects in cf-redirect's CSV import format.
+
+Usage:
+  generate-test-csv [--count COUNT] [--output FILE]
+
+Options:
+  --count COUNT  Number of redirects to generate (default: 5000)
+  --output FILE  Write to FILE instead of standard output
+  -h, --help     Show this help
+
+Examples:
+  ./scripts/generate-test-csv --output /tmp/redirects.csv
+  ./scripts/generate-test-csv --count 10000 > /tmp/redirects.csv
+EOF
+}
+
+count=5000
+output=""
+
+while (($#)); do
+  case "$1" in
+    --count)
+      [[ $# -ge 2 ]] || { echo "--count requires a value" >&2; exit 2; }
+      count="$2"
+      shift 2
+      ;;
+    --output)
+      [[ $# -ge 2 ]] || { echo "--output requires a value" >&2; exit 2; }
+      output="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+[[ "$count" =~ ^[1-9][0-9]*$ ]] || {
+  echo "--count must be a positive integer" >&2
+  exit 2
+}
+
+generate() {
+  local i source_id target_id
+
+  printf 'source,target\n'
+  for ((i = 1; i <= count; i++)); do
+    # The row number guarantees unique sources; RANDOM keeps each data set varied.
+    printf -v source_id '%04x%04x%04x' "$RANDOM" "$RANDOM" "$RANDOM"
+    printf -v target_id '%04x%04x%04x' "$RANDOM" "$RANDOM" "$RANDOM"
+    printf 'https://legacy-%s.example.test/archive/%05d/,https://www.example.test/content/%s/%05d/\n' \
+      "$source_id" "$i" "$target_id" "$i"
+  done
+}
+
+if [[ -z "$output" || "$output" == "-" ]]; then
+  generate
+  exit 0
+fi
+
+output_dir=$(dirname "$output")
+[[ -d "$output_dir" ]] || {
+  echo "output directory does not exist: $output_dir" >&2
+  exit 1
+}
+
+tmp=$(mktemp "${output}.tmp.XXXXXX")
+trap 'rm -f "$tmp"' EXIT
+generate >"$tmp"
+mv "$tmp" "$output"
+trap - EXIT
+printf 'Generated %d redirects in %s\n' "$count" "$output" >&2
