@@ -54,7 +54,7 @@ func NewRootCmd() *cobra.Command {
 	}
 	root.PersistentFlags().StringVar(&o.accountID, "account-id", "", "Cloudflare account ID (or CLOUDFLARE_ACCOUNT_ID)")
 	root.PersistentFlags().StringVar(&o.listID, "list-id", "", "Cloudflare redirect list ID (or CLOUDFLARE_LIST_ID)")
-	root.AddCommand(listCmd(o), searchCmd(o), exportCmd(o), addCmd(o), editCmd(o), deleteCmd(o), clearCmd(o), importCmd(o), configCmd(o), authCmd(o), loginCmd(o), logoutCmd(o), statusCmd(o), tuiCmd(o))
+	root.AddCommand(listCmd(o), searchCmd(o), exportCmd(o), addCmd(o), editCmd(o), editAllCmd(o), deleteCmd(o), clearCmd(o), importCmd(o), configCmd(o), authCmd(o), loginCmd(o), logoutCmd(o), statusCmd(o), tuiCmd(o))
 	return root
 }
 
@@ -203,6 +203,27 @@ func editCmd(o *options) *cobra.Command {
 			return planner.EditRedirect(current, item.ID, newSource, args[1])
 		})
 	}}
+	mutationFlags(cmd, &dryRun, &yes)
+	return cmd
+}
+
+func editAllCmd(o *options) *cobra.Command {
+	var dryRun, yes, preserveQueryString bool
+	cmd := &cobra.Command{
+		Use:     "edit-all --preserve-query-string[=true|false]",
+		Short:   "Plan and edit options on every redirect in the list",
+		Example: "  cf-redirect edit-all --preserve-query-string --dry-run\n  cf-redirect edit-all --preserve-query-string=false --yes",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if !cmd.Flags().Changed("preserve-query-string") {
+				return fmt.Errorf("edit-all requires --preserve-query-string")
+			}
+			return makeMutation(cmd, o, dryRun, yes, func(current []domain.Redirect) (planner.Plan, error) {
+				return planner.SetPreserveQueryString(current, preserveQueryString)
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&preserveQueryString, "preserve-query-string", false, "Preserve the original query string (true or false)")
 	mutationFlags(cmd, &dryRun, &yes)
 	return cmd
 }
@@ -409,7 +430,7 @@ func renderPlan(w io.Writer, plan planner.Plan) error {
 		case planner.Add:
 			fmt.Fprintf(&b, "+ %s -> %s\n", textsafe.StripControls(c.After.Source), textsafe.StripControls(c.After.Target))
 		case planner.Update:
-			fmt.Fprintf(&b, "~ %s -> %s => %s -> %s\n", textsafe.StripControls(c.Before.Source), textsafe.StripControls(c.Before.Target), textsafe.StripControls(c.After.Source), textsafe.StripControls(c.After.Target))
+			fmt.Fprintf(&b, "~ %s -> %s => %s -> %s%s\n", textsafe.StripControls(c.Before.Source), textsafe.StripControls(c.Before.Target), textsafe.StripControls(c.After.Source), textsafe.StripControls(c.After.Target), renderOptionChanges(c))
 		case planner.Delete:
 			fmt.Fprintf(&b, "- %s\n", textsafe.StripControls(c.Before.Source))
 		}
@@ -418,6 +439,13 @@ func renderPlan(w io.Writer, plan planner.Plan) error {
 		return fmt.Errorf("write plan: %w", err)
 	}
 	return nil
+}
+
+func renderOptionChanges(change planner.Change) string {
+	if change.Before.PreserveQueryString != change.After.PreserveQueryString {
+		return fmt.Sprintf(" [preserve query string: %t => %t]", change.Before.PreserveQueryString, change.After.PreserveQueryString)
+	}
+	return ""
 }
 
 func renderRedirects(w io.Writer, items []domain.Redirect, format string) error {

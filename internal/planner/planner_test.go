@@ -50,6 +50,53 @@ func TestAddAndExplicitDelete(t *testing.T) {
 	}
 }
 
+func TestSetPreserveQueryStringUpdatesEveryDifferentEntry(t *testing.T) {
+	alreadyEnabled := existing()
+	disabled := domain.Redirect{ID: "id-2", Source: "https://two.example", Target: "https://target.example/two", StatusCode: 302, Comment: "retain me too"}
+	plan, err := SetPreserveQueryString([]domain.Redirect{disabled, alreadyEnabled}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 1 || plan.SkippedExisting != 1 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	change := plan.Changes[0]
+	if change.Kind != Update || change.Before.ID != disabled.ID || !change.After.PreserveQueryString {
+		t.Fatalf("change = %#v", change)
+	}
+	if change.After.ID != disabled.ID || change.After.StatusCode != disabled.StatusCode || change.After.Comment != disabled.Comment {
+		t.Fatalf("bulk edit lost fields: %#v", change.After)
+	}
+}
+
+func TestSetPreserveQueryStringSortsChangesAndSkipsMatchingEntries(t *testing.T) {
+	z := domain.Redirect{ID: "z", Source: "https://z.example", Target: "https://target.example/z", StatusCode: 301}
+	a := domain.Redirect{ID: "a", Source: "https://a.example", Target: "https://target.example/a", StatusCode: 301}
+	matching := existing()
+	plan, err := SetPreserveQueryString([]domain.Redirect{z, matching, a}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.SkippedExisting != 1 || len(plan.Changes) != 2 || plan.Changes[0].After.Source != a.Source || plan.Changes[1].After.Source != z.Source {
+		t.Fatalf("plan = %#v", plan)
+	}
+}
+
+func TestSetPreserveQueryStringCanDisableAndHandleEmptyList(t *testing.T) {
+	old := existing()
+	plan, err := SetPreserveQueryString([]domain.Redirect{old}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 1 || plan.Changes[0].After.PreserveQueryString {
+		t.Fatalf("plan = %#v", plan)
+	}
+	plan, err = SetPreserveQueryString(nil, true)
+	if err != nil || !plan.Empty() {
+		t.Fatalf("empty plan = %#v, %v", plan, err)
+	}
+}
+
 func TestDeleteAllUsesEveryExplicitID(t *testing.T) {
 	one := existing()
 	two := domain.Redirect{ID: "id-2", Source: "https://two.example", Target: "https://target.example/two", StatusCode: 301}

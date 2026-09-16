@@ -56,6 +56,43 @@ func TestRedirectLifecycleAgainstMockCloudflare(t *testing.T) {
 	}
 }
 
+func TestBulkEditPreserveQueryStringAgainstMockCloudflare(t *testing.T) {
+	mock := newMockCloudflareAPI(t)
+	mock.items = []cloudflare.RedirectItem{
+		{ID: "already-enabled", Redirect: cloudflare.RedirectItemOptions{SourceURL: "enabled.example.com/", TargetURL: "https://example.com/enabled/", StatusCode: 301, PreserveQueryString: true}, Comment: "do not rewrite"},
+		{ID: "needs-update", Redirect: cloudflare.RedirectItemOptions{SourceURL: "disabled.example.com/", TargetURL: "https://example.com/disabled/", StatusCode: 308}, Comment: "preserve this"},
+	}
+	server := httptest.NewServer(mock)
+	defer server.Close()
+	client := &cloudflare.Client{HTTPClient: server.Client(), BaseURL: server.URL, Token: mock.token}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+
+	before := listRedirects(t, ctx, client, mock.accountID, mock.listID)
+	plan, err := planner.SetPreserveQueryString(before, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Changes) != 1 || plan.SkippedExisting != 1 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	report := applyPlan(t, ctx, client, mock.accountID, mock.listID, plan)
+	assertCompletedPhases(t, report, app.DeletePhase, app.CreatePhase)
+
+	after := listRedirects(t, ctx, client, mock.accountID, mock.listID)
+	enabled := redirectBySource(t, after, "enabled.example.com/")
+	if enabled.ID != "already-enabled" || enabled.Comment != "do not rewrite" {
+		t.Fatalf("already-enabled redirect was rewritten: %#v", enabled)
+	}
+	updated := redirectBySource(t, after, "disabled.example.com/")
+	if !updated.PreserveQueryString || updated.StatusCode != 308 || updated.Comment != "preserve this" {
+		t.Fatalf("bulk edit lost redirect content: %#v", updated)
+	}
+	if got, want := mock.mutations(), []string{http.MethodDelete, http.MethodPost}; !slices.Equal(got, want) {
+		t.Fatalf("mutation methods = %v, want %v", got, want)
+	}
+}
+
 // TestRedirectLifecycleAgainstLiveCloudflare is intentionally opt-in because
 // it temporarily creates, replaces, and deletes one uniquely named item in the
 // list selected by the tool's normal configuration resolution.

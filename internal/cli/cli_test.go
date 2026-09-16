@@ -44,6 +44,20 @@ func TestRenderPlanIncludesDeterministicMarkersAndCounts(t *testing.T) {
 	}
 }
 
+func TestRenderPlanShowsPreserveQueryStringChange(t *testing.T) {
+	before := domain.Redirect{ID: "one", Source: "https://source.example", Target: "https://target.example", StatusCode: 301}
+	after := before
+	after.PreserveQueryString = true
+	plan := planner.Plan{Changes: []planner.Change{{Kind: planner.Update, Before: &before, After: &after}}}
+	var output bytes.Buffer
+	if err := renderPlan(&output, plan); err != nil {
+		t.Fatal(err)
+	}
+	if want := "[preserve query string: false => true]"; !strings.Contains(output.String(), want) {
+		t.Fatalf("plan output %q does not contain %q", output.String(), want)
+	}
+}
+
 func TestRenderPlanShowsAllSkippedImport(t *testing.T) {
 	plan := planner.Plan{SkippedExisting: 3}
 	if !plan.Empty() {
@@ -144,6 +158,34 @@ func TestClearCommandRequiresNoArgumentsAndHasMutationGuards(t *testing.T) {
 		if clear.Flags().Lookup(name) == nil {
 			t.Fatalf("clear is missing --%s", name)
 		}
+	}
+}
+
+func TestEditAllCommandRequiresOptionAndHasMutationGuards(t *testing.T) {
+	root := NewRootCmd()
+	editAll, _, err := root.Find([]string{"edit-all"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if editAll.Args == nil || editAll.Args(editAll, []string{"unexpected"}) == nil {
+		t.Fatal("edit-all must reject positional arguments")
+	}
+	for _, name := range []string{"preserve-query-string", "dry-run", "yes"} {
+		if editAll.Flags().Lookup(name) == nil {
+			t.Fatalf("edit-all is missing --%s", name)
+		}
+	}
+	if err := editAll.RunE(editAll, nil); err == nil || !strings.Contains(err.Error(), "requires --preserve-query-string") {
+		t.Fatalf("missing option error = %v", err)
+	}
+	if err := editAll.Flags().Set("preserve-query-string", "false"); err != nil {
+		t.Fatal(err)
+	}
+	if !editAll.Flags().Changed("preserve-query-string") {
+		t.Fatal("explicit false must count as a provided option")
+	}
+	if got, err := editAll.Flags().GetBool("preserve-query-string"); err != nil || got {
+		t.Fatalf("preserve-query-string = %v, %v; want false", got, err)
 	}
 }
 
@@ -263,7 +305,7 @@ func TestProgressDisplayAnimatesAndClearsInteractiveLine(t *testing.T) {
 
 func TestRootIncludesRequiredCommands(t *testing.T) {
 	root := NewRootCmd()
-	for _, name := range []string{"list", "search", "export", "add", "edit", "delete", "clear", "import", "config", "auth", "login", "logout", "status", "tui"} {
+	for _, name := range []string{"list", "search", "export", "add", "edit", "edit-all", "delete", "clear", "import", "config", "auth", "login", "logout", "status", "tui"} {
 		if _, _, err := root.Find([]string{name}); err != nil {
 			t.Fatalf("command %q is missing: %v", name, err)
 		}

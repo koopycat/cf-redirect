@@ -88,6 +88,28 @@ func EditRedirect(current []domain.Redirect, id, source, target string) (Plan, e
 	return Plan{Changes: []Change{{Kind: Update, Before: pointer(*old), After: pointer(replacement)}}}, nil
 }
 
+// SetPreserveQueryString plans an update of every redirect whose preserve-query
+// setting differs from enabled. All other fields and options are retained.
+func SetPreserveQueryString(current []domain.Redirect, enabled bool) (Plan, error) {
+	if err := validateCurrent(current); err != nil {
+		return Plan{}, err
+	}
+	plan := Plan{Changes: make([]Change, 0, len(current))}
+	for i := range current {
+		if current[i].PreserveQueryString == enabled {
+			plan.SkippedExisting++
+			continue
+		}
+		replacement := current[i]
+		replacement.PreserveQueryString = enabled
+		plan.Changes = append(plan.Changes, Change{Kind: Update, Before: pointer(current[i]), After: pointer(replacement)})
+	}
+	sort.SliceStable(plan.Changes, func(i, j int) bool {
+		return plan.Changes[i].After.Source < plan.Changes[j].After.Source
+	})
+	return plan, nil
+}
+
 // DeleteAll plans deletion of every currently listed item. Empty lists produce
 // an empty plan, and each deletion retains its explicit Cloudflare item ID.
 func DeleteAll(current []domain.Redirect) (Plan, error) {
