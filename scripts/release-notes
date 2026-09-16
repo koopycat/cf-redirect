@@ -1,0 +1,345 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+umask 077
+
+usage() {
+  cat <<'EOF'
+Generate, inspect, and publish release notes for an existing release tag.
+
+Usage:
+  release-notes generate [TAG] [--force]
+  release-notes inspect [TAG] [--edit]
+  release-notes publish [TAG] [--yes]
+
+Commands:
+  generate  Ask a constrained local Pi process to create a draft
+  inspect   Review the draft in $PAGER, or edit it with --edit
+  publish   Replace an existing GitHub release body with the reviewed draft
+
+Options:
+  --force  Replace an existing draft (generate only)
+  --edit   Open the draft in $VISUAL or $EDITOR (inspect only)
+  --yes    Publish without an interactive confirmation (publish only)
+  -h, --help
+
+TAG defaults to v followed by internal/version/VERSION. TAG must be a local
+stable semantic-version tag such as v1.2.3. Drafts are ephemeral and live under
+${TMPDIR:-/tmp}/cf-redirect-release-notes/, outside the repository and .git.
+EOF
+}
+
+fail() {
+  printf 'release-notes: %s\n' "$*" >&2
+  exit 1
+}
+
+usage_error() {
+  printf 'release-notes: %s\n\n' "$*" >&2
+  usage >&2
+  exit 2
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+}
+
+is_stable_tag() {
+  [[ "$1" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+}
+
+resolve_repo() {
+  require_command git
+  repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail "run this command inside the cf-redirect Git repository"
+  repo_root=$(cd "$repo_root" && pwd -P)
+  [[ -f "$repo_root/internal/version/VERSION" ]] || fail "internal/version/VERSION was not found in $repo_root"
+  prompt_file="$repo_root/scripts/release-notes-prompt.md"
+
+  local tmp_base repo_id
+  tmp_base=${TMPDIR:-/tmp}
+  [[ -d "$tmp_base" && -w "$tmp_base" ]] || fail "temporary directory is not writable: $tmp_base"
+  repo_id=$(printf '%s' "$repo_root" | git hash-object --stdin)
+  state_root="$tmp_base/cf-redirect-release-notes/$repo_id"
+}
+
+resolve_tag() {
+  local requested=${1:-}
+  if [[ -n "$requested" ]]; then
+    tag=$requested
+  else
+    local version
+    version=$(tr -d '[:space:]' < "$repo_root/internal/version/VERSION")
+    [[ -n "$version" ]] || fail "internal/version/VERSION is empty"
+    tag="v$version"
+  fi
+
+  is_stable_tag "$tag" || fail "release tag must be a stable semantic version such as v1.2.3: $tag"
+  git rev-parse --verify --quiet "refs/tags/$tag^{commit}" >/dev/null || fail "local release tag does not exist: $tag"
+
+  draft="$state_root/$tag.md"
+  inspection="$state_root/$tag.inspected"
+}
+
+find_previous_tag() {
+  local candidate seen_selected=false
+  previous_tag=""
+
+  while IFS= read -r candidate; do
+    is_stable_tag "$candidate" || continue
+    if [[ "$candidate" == "$tag" ]]; then
+      seen_selected=true
+      break
+    fi
+    if git merge-base --is-ancestor "$candidate^{commit}" "$tag^{commit}" 2>/dev/null; then
+      previous_tag=$candidate
+    fi
+  done < <(git tag --sort=version:refname)
+
+  [[ "$seen_selected" == true ]] || fail "could not place release tag in semantic-version order: $tag"
+  [[ -n "$previous_tag" ]] || fail "no preceding stable semantic-version tag is an ancestor of $tag"
+}
+
+resolve_github_repo() {
+  require_command gh
+  github_repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) || \
+    fail "could not resolve the GitHub repository; check gh authentication and the Git remote"
+  [[ "$github_repo" =~ ^[^/]+/[^/]+$ ]] || fail "gh returned an invalid repository name: $github_repo"
+}
+
+ensure_state_root() {
+  local state_base="${TMPDIR:-/tmp}/cf-redirect-release-notes"
+  [[ ! -L "$state_base" ]] || fail "temporary state root must not be a symbolic link: $state_base"
+  mkdir -p "$state_base"
+  chmod 700 "$state_base"
+  [[ ! -L "$state_root" ]] || fail "repository state directory must not be a symbolic link: $state_root"
+  mkdir -p "$state_root"
+  chmod 700 "$state_root"
+}
+
+content_digest() {
+  git hash-object "$1"
+}
+
+show_remote_difference() {
+  local remote_file=$1
+  if cmp -s "$remote_file" "$draft"; then
+    printf 'The local draft already matches the GitHub release body.\n'
+  else
+    printf 'Proposed GitHub release body change:\n'
+    diff -u --label "GitHub release $tag" --label "reviewed local draft $tag" "$remote_file" "$draft" || true
+  fi
+}
+
+fetch_release_body() {
+  local output=$1
+  gh release view "$tag" --repo "$github_repo" --json body --template '{{.body}}' > "$output"
+}
+
+generate_notes() {
+  local force=$1
+  require_command pi
+  resolve_github_repo
+  [[ -f "$prompt_file" ]] || fail "release-note prompt not found: $prompt_file"
+  find_previous_tag
+  ensure_state_root
+
+  if [[ -e "$draft" && "$force" != true ]]; then
+    fail "draft already exists: $draft (use --force to replace it)"
+  fi
+
+  local evidence pi_output final_output
+  evidence=$(mktemp "$state_root/$tag.evidence.XXXXXX")
+  pi_output=$(mktemp "$state_root/$tag.pi.XXXXXX")
+  final_output=$(mktemp "$state_root/$tag.draft.XXXXXX")
+
+  {
+    printf '<release-evidence>\n'
+    printf 'Repository: %s\n' "$github_repo"
+    printf 'Current release: %s\n' "$tag"
+    printf 'Previous release: %s\n\n' "$previous_tag"
+    printf 'Commits:\n'
+    git log --format='commit %H%nsubject: %s%nbody:%n%b%n' "$previous_tag..$tag"
+    printf '\nChanged files:\n'
+    git diff --stat "$previous_tag..$tag"
+    printf '\nDiff:\n'
+    git diff --no-ext-diff --find-renames "$previous_tag..$tag"
+    printf '</release-evidence>\n'
+  } > "$evidence"
+
+  if ! pi --print --no-session --no-tools --no-context-files --no-extensions \
+      --no-skills --no-prompt-templates "$(cat "$prompt_file")" \
+      < "$evidence" > "$pi_output"; then
+    rm -f "$evidence" "$pi_output" "$final_output"
+    fail "Pi failed; no draft was changed"
+  fi
+  if ! grep -q '[^[:space:]]' "$pi_output"; then
+    rm -f "$evidence" "$pi_output" "$final_output"
+    fail "Pi returned an empty response; no draft was changed"
+  fi
+
+  {
+    cat "$pi_output"
+    printf '\n\n**Full Changelog**: https://github.com/%s/compare/%s...%s\n' \
+      "$github_repo" "$previous_tag" "$tag"
+  } > "$final_output"
+
+  mv -f "$final_output" "$draft"
+  rm -f "$inspection"
+  rm -f "$evidence" "$pi_output"
+
+  printf 'Generated draft: %s\n' "$draft"
+  printf 'Next: %s inspect %s\n' "$0" "$tag"
+}
+
+inspect_notes() {
+  local edit_mode=$1
+  [[ -f "$draft" ]] || fail "draft does not exist: $draft (run generate first)"
+  [[ -s "$draft" ]] || fail "draft is empty: $draft"
+  ensure_state_root
+  resolve_github_repo
+
+  local viewer
+  if [[ "$edit_mode" == true ]]; then
+    viewer=${VISUAL:-${EDITOR:-vi}}
+  else
+    viewer=${PAGER:-less}
+  fi
+  [[ -n "$viewer" ]] || fail "review command is empty"
+
+  if ! sh -c "$viewer \"\$1\"" sh "$draft"; then
+    rm -f "$inspection"
+    fail "inspection was cancelled or failed; the draft was not marked as reviewed"
+  fi
+  [[ -s "$draft" ]] || {
+    rm -f "$inspection"
+    fail "the inspected draft is empty; it was not marked as reviewed"
+  }
+
+  local digest remote_file
+  digest=$(content_digest "$draft")
+  printf '%s\n' "$digest" > "$inspection"
+
+  remote_file=$(mktemp "$state_root/$tag.remote.XXXXXX")
+  if fetch_release_body "$remote_file" 2>/dev/null; then
+    show_remote_difference "$remote_file"
+  else
+    printf 'No GitHub release body is available for %s yet.\n' "$tag"
+  fi
+  rm -f "$remote_file"
+
+  printf 'Inspected draft: %s\n' "$draft"
+  printf 'Next: %s publish %s\n' "$0" "$tag"
+}
+
+publish_notes() {
+  local assume_yes=$1
+  [[ -f "$draft" ]] || fail "draft does not exist: $draft (run generate first)"
+  [[ -s "$draft" ]] || fail "draft is empty: $draft"
+  [[ -f "$inspection" ]] || fail "draft has not been inspected; run inspect first"
+
+  local expected_digest actual_digest
+  expected_digest=$(tr -d '[:space:]' < "$inspection")
+  actual_digest=$(content_digest "$draft")
+  [[ -n "$expected_digest" && "$expected_digest" == "$actual_digest" ]] || \
+    fail "draft changed after inspection; inspect it again before publishing"
+
+  resolve_github_repo
+  ensure_state_root
+  local remote_file verified_file
+  remote_file=$(mktemp "$state_root/$tag.remote.XXXXXX")
+  verified_file=$(mktemp "$state_root/$tag.verified.XXXXXX")
+
+  if ! fetch_release_body "$remote_file" 2>/dev/null; then
+    fail "GitHub release does not exist or could not be read: $tag"
+  fi
+  show_remote_difference "$remote_file"
+
+  if [[ "$assume_yes" != true ]]; then
+    [[ -t 0 ]] || fail "interactive confirmation requires a terminal; use --yes for non-interactive publication"
+    local answer=""
+    if ! read -r -p "Replace the GitHub release body for $tag? [y/N] " answer; then
+      answer=""
+    fi
+    case "$answer" in
+      y|Y|yes|YES|Yes) ;;
+      *)
+        printf 'Publication cancelled; the GitHub release was not changed.\n'
+        rm -f "$remote_file" "$verified_file"
+        return 0
+        ;;
+    esac
+  fi
+
+  if ! gh release edit "$tag" --repo "$github_repo" --notes-file "$draft" >/dev/null; then
+    rm -f "$remote_file" "$verified_file"
+    fail "GitHub rejected the release-note update"
+  fi
+  if ! fetch_release_body "$verified_file" 2>/dev/null; then
+    rm -f "$remote_file" "$verified_file"
+    fail "release was updated but its body could not be fetched for verification"
+  fi
+  if ! cmp -s "$verified_file" "$draft"; then
+    rm -f "$remote_file" "$verified_file"
+    fail "published release body does not exactly match the reviewed draft"
+  fi
+
+  rm -f "$remote_file" "$verified_file"
+  printf 'Published and verified release notes for %s.\n' "$tag"
+}
+
+main() {
+  (($# > 0)) || usage_error "a command is required"
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+  esac
+
+  local command_name=$1
+  shift
+  local requested_tag="" force=false edit_mode=false assume_yes=false
+
+  while (($#)); do
+    case "$1" in
+      --force)
+        [[ "$command_name" == generate ]] || usage_error "--force is valid only with generate"
+        force=true
+        ;;
+      --edit)
+        [[ "$command_name" == inspect ]] || usage_error "--edit is valid only with inspect"
+        edit_mode=true
+        ;;
+      --yes)
+        [[ "$command_name" == publish ]] || usage_error "--yes is valid only with publish"
+        assume_yes=true
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      --*) usage_error "unknown option: $1" ;;
+      *)
+        [[ -z "$requested_tag" ]] || usage_error "only one release tag may be specified"
+        requested_tag=$1
+        ;;
+    esac
+    shift
+  done
+
+  case "$command_name" in
+    generate|inspect|publish) ;;
+    *) usage_error "unknown command: $command_name" ;;
+  esac
+
+  resolve_repo
+  resolve_tag "$requested_tag"
+
+  case "$command_name" in
+    generate) generate_notes "$force" ;;
+    inspect) inspect_notes "$edit_mode" ;;
+    publish) publish_notes "$assume_yes" ;;
+  esac
+}
+
+main "$@"
