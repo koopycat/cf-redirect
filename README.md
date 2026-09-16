@@ -67,6 +67,45 @@ For automation, avoid putting the token in arguments:
 printf '%s' "$TOKEN" | cf-redirect auth login --token-stdin
 ```
 
+### Headless Linux and WSL
+
+Linux keychain storage uses the Secret Service D-Bus API. A desktop UI is not required. On Debian, Ubuntu, or WSL, install the user-session bus, a Secret Service provider, and the optional diagnostic CLI:
+
+```sh
+sudo apt update
+sudo apt install dbus-user-session gnome-keyring libsecret-tools
+```
+
+Exit and reopen the Linux login session after installation. If the environment does not start a D-Bus user session, start a login shell inside one:
+
+```sh
+test -n "${DBUS_SESSION_BUS_ADDRESS:-}" || exec dbus-run-session -- "$SHELL" -l
+```
+
+A headless session may also need the login keyring to be created or unlocked. In Bash, the following reads its password without echoing it or placing it in shell history:
+
+```bash
+read -rsp 'Keyring password: ' KEYRING_PASSWORD; printf '\n'
+printf '%s' "$KEYRING_PASSWORD" | gnome-keyring-daemon --unlock
+unset KEYRING_PASSWORD
+```
+
+Then run `cf-redirect auth login`. `libsecret-tools` is not needed by `cf-redirect` itself, but this command can confirm the token is present without printing it:
+
+```sh
+secret-tool lookup service cf-redirect username cloudflare-api-token:YOUR_ACCOUNT_ID >/dev/null \
+  && echo 'cf-redirect token found'
+```
+
+For ephemeral headless sessions, containers, and CI, injecting `CLOUDFLARE_API_TOKEN` is usually simpler than running a keyring daemon. Use the platform's secret manager rather than committing it or passing it as a command-line argument:
+
+```sh
+export CLOUDFLARE_API_TOKEN="$(your-secret-manager read cloudflare-api-token)"
+cf-redirect list
+```
+
+`cf-redirect` deliberately does not write API tokens to `config.json`: that file stores non-secret account and list IDs only. If neither Secret Service nor a securely injected environment variable is practical, configure a Secret Service provider rather than persisting an unencrypted token.
+
 The token needs Account-level `Account Filter Lists: Edit` permission for the configured account. `Read` is insufficient because add, edit, import, and delete mutate list items.
 
 To create and store a least-privilege token through Cloudflare's browser form, run the helper from a checkout:

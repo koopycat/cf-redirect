@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strings"
+	"syscall"
 
+	"github.com/godbus/dbus/v5"
 	"github.com/zalando/go-keyring"
 )
 
@@ -16,7 +19,76 @@ const (
 	KeyringUser    = "cloudflare-api-token"
 )
 
-var ErrTokenNotFound = errors.New("Cloudflare API token not found")
+var (
+	ErrTokenNotFound      = errors.New("Cloudflare API token not found")
+	ErrKeyringUnavailable = errors.New("OS keychain unavailable")
+)
+
+type keyringError struct {
+	operation string
+	err       error
+}
+
+func (e *keyringError) Error() string {
+	return fmt.Sprintf("%s API token in keychain: %v", e.operation, e.err)
+}
+
+func (e *keyringError) Unwrap() error { return e.err }
+
+func (e *keyringError) Is(target error) bool {
+	return target == ErrKeyringUnavailable && isKeyringUnavailable(e.err)
+}
+
+func wrapKeyringError(operation string, err error) error {
+	return &keyringError{operation: operation, err: err}
+}
+
+func isKeyringUnavailable(err error) bool {
+	if name, ok := dbusErrorName(err); ok {
+		switch name {
+		case "org.freedesktop.DBus.Error.ServiceUnknown",
+			"org.freedesktop.DBus.Error.NameHasNoOwner",
+			"org.freedesktop.DBus.Error.NoServer",
+			"org.freedesktop.DBus.Error.Disconnected",
+			"org.freedesktop.DBus.Error.FileNotFound",
+			"org.freedesktop.DBus.Error.Spawn.ExecFailed",
+			"org.freedesktop.DBus.Error.Spawn.ChildExited":
+			return true
+		}
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) || errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ECONNREFUSED) {
+		return true
+	}
+
+	message := strings.ToLower(err.Error())
+	for _, unavailable := range []string{
+		"dbus: couldn't determine address of session bus",
+		"dbus-launch",
+		"failed to connect to session bus",
+		"failed to unlock correct collection",
+		"org.freedesktop.secrets was not provided by any .service files",
+		"unable to autolaunch a dbus-daemon",
+	} {
+		if strings.Contains(message, unavailable) {
+			return true
+		}
+	}
+	return false
+}
+
+func dbusErrorName(err error) (string, bool) {
+	for err != nil {
+		switch typed := err.(type) {
+		case dbus.Error:
+			return typed.Name, true
+		case *dbus.Error:
+			return typed.Name, true
+		}
+		err = errors.Unwrap(err)
+	}
+	return "", false
+}
 
 // keyringStore is the narrow seam used to substitute a credential store in
 // tests without exposing keyring configuration in the production API.
@@ -69,7 +141,7 @@ func (r Resolver) Token() (string, error) {
 		if errors.Is(err, keyring.ErrNotFound) {
 			return "", ErrTokenNotFound
 		}
-		return "", fmt.Errorf("read API token from keychain: %w", err)
+		return "", wrapKeyringError("read", err)
 	}
 	if strings.TrimSpace(value) == "" {
 		return "", ErrTokenNotFound
@@ -90,7 +162,7 @@ func (r Resolver) Store(token string) error {
 		store = osKeyring{}
 	}
 	if err := store.Set(KeyringService, r.keyringUser(), token); err != nil {
-		return fmt.Errorf("store API token in keychain: %w", err)
+		return wrapKeyringError("store", err)
 	}
 	return nil
 }
@@ -104,7 +176,7 @@ func (r Resolver) Delete() error {
 		store = osKeyring{}
 	}
 	if err := store.Delete(KeyringService, r.keyringUser()); err != nil && !errors.Is(err, keyring.ErrNotFound) {
-		return fmt.Errorf("delete API token from keychain: %w", err)
+		return wrapKeyringError("delete", err)
 	}
 	return nil
 }

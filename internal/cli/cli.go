@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -64,9 +65,26 @@ func configured(cmd *cobra.Command, o *options) (config.Config, *cloudflare.Clie
 	}
 	token, err := auth.NewResolver(cfg.AccountID).Token()
 	if err != nil {
+		if errors.Is(err, auth.ErrKeyringUnavailable) {
+			return config.Config{}, nil, fmt.Errorf("authenticate: %w", keyringErrorHelpForOS(err, runtime.GOOS))
+		}
 		return config.Config{}, nil, fmt.Errorf("authenticate: %w (set %s or run cf-redirect auth login)", err, auth.TokenEnv)
 	}
 	return cfg, &cloudflare.Client{Token: token}, nil
+}
+
+func keyringErrorHelpForOS(err error, goos string) error {
+	if !errors.Is(err, auth.ErrKeyringUnavailable) {
+		return err
+	}
+	switch goos {
+	case "linux":
+		return fmt.Errorf("%w; Linux keychain access requires a Secret Service provider and D-Bus user session (on Debian, Ubuntu, and WSL: sudo apt install dbus-user-session gnome-keyring, then start a new login session). For headless Linux or WSL, you can set %s instead; see https://github.com/koopycat/cf-redirect#headless-linux-and-wsl", err, auth.TokenEnv)
+	case "darwin":
+		return fmt.Errorf("%w; ensure the macOS login keychain is available and unlocked, or set %s instead", err, auth.TokenEnv)
+	default:
+		return err
+	}
 }
 
 func listCmd(o *options) *cobra.Command {
@@ -455,6 +473,7 @@ func loginCmd(o *options) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		resolver := auth.NewResolver(cfg.AccountID)
 		var token string
 		if stdin {
 			data, readErr := io.ReadAll(cmd.InOrStdin())
@@ -474,8 +493,8 @@ func loginCmd(o *options) *cobra.Command {
 		if _, err := (&cloudflare.Client{Token: token}).ListItems(cmd.Context(), cfg.AccountID, cfg.ListID); err != nil {
 			return fmt.Errorf("verify API token against configured redirect list: %w", err)
 		}
-		if err := auth.NewResolver(cfg.AccountID).Store(token); err != nil {
-			return err
+		if err := resolver.Store(token); err != nil {
+			return keyringErrorHelpForOS(err, runtime.GOOS)
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), "API token verified and stored in OS keychain.")
 		return nil
@@ -491,7 +510,7 @@ func logoutCmd(o *options) *cobra.Command {
 			return err
 		}
 		if err := auth.NewResolver(accountID).Delete(); err != nil {
-			return err
+			return keyringErrorHelpForOS(err, runtime.GOOS)
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), "Stored API token removed.")
 		return nil

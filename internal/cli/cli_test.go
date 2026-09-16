@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -143,6 +144,27 @@ func TestClearCommandRequiresNoArgumentsAndHasMutationGuards(t *testing.T) {
 		if clear.Flags().Lookup(name) == nil {
 			t.Fatalf("clear is missing --%s", name)
 		}
+	}
+}
+
+func TestLinuxKeyringHelpExplainsHeadlessSetupAndEnvironmentFallback(t *testing.T) {
+	failure := fmt.Errorf("%w: Secret Service is not installed", auth.ErrKeyringUnavailable)
+	got := keyringErrorHelpForOS(failure, "linux").Error()
+	for _, want := range []string{
+		"sudo apt install dbus-user-session gnome-keyring",
+		"CLOUDFLARE_API_TOKEN",
+		"#headless-linux-and-wsl",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("error %q does not contain %q", got, want)
+		}
+	}
+}
+
+func TestKeyringHelpLeavesNonKeyringErrorsUnchanged(t *testing.T) {
+	failure := errors.New("token is too large")
+	if got := keyringErrorHelpForOS(failure, "linux"); got != failure {
+		t.Fatalf("keyringErrorHelpForOS() = %v, want original error", got)
 	}
 }
 
