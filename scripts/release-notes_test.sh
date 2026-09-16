@@ -183,9 +183,10 @@ draft=$(draft_path_from_output "$suite_tmp/generate-default")
 case "$draft" in "$state_tmp"/cf-redirect-release-notes/*/v0.1.2.md) ;; *) fail_test "unexpected draft path: $draft" ;; esac
 [[ "$draft" != "$repo"/* ]] || fail_test 'draft was stored inside the repository'
 assert_eq "$(python3 -c 'import os,sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777)[2:])' "$(dirname "$draft")")" 700 'repository temporary directory permissions'
-for flag in --print --no-session --no-tools --no-context-files --no-extensions --no-skills --no-prompt-templates; do
+for flag in --print --no-session --no-tools --no-context-files --no-skills --no-prompt-templates; do
   assert_contains "$FAKE_PI_ARGS" "$flag"
 done
+assert_not_contains "$FAKE_PI_ARGS" '--no-extensions'
 assert_contains "$FAKE_PI_STDIN" 'Current release: v0.1.2'
 assert_contains "$FAKE_PI_STDIN" 'Previous release: v0.1.1'
 assert_contains "$FAKE_PI_STDIN" 'Fix visible behavior'

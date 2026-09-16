@@ -166,7 +166,7 @@ generate_notes() {
     printf '</release-evidence>\n'
   } > "$evidence"
 
-  if ! pi --print --no-session --no-tools --no-context-files --no-extensions \
+  if ! pi --print --no-session --no-tools --no-context-files \
       --no-skills --no-prompt-templates "$(cat "$prompt_file")" \
       < "$evidence" > "$pi_output"; then
     rm -f "$evidence" "$pi_output" "$final_output"
