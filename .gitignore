@@ -9,3 +9,7 @@
 devenv.local.nix
 devenv.local.yaml
 .direnv/
+
+# managed skill links (created by my_agents/bin/agents-sync; machine-specific)
+/.agents/skills/
+/.claude/skills/

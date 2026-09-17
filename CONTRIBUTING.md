@@ -53,31 +53,42 @@ The release workflow checks that the tag matches the embedded version and points
 
 ### Publishing reviewed release notes
 
-After the release workflow has created the GitHub release, use the local release-note workflow to replace GitHub's generated placeholder with reviewed notes:
+After the release workflow creates the GitHub release, ask an agent to use the repository's `release-notes` skill. For example:
+
+- "Generate release notes for v1.2.3."
+- "Draft the release notes for the current version, then let me review them."
+- "Inspect and publish the reviewed release notes for v1.2.3."
+
+The skill is exposed through the managed `.agents/skills/release-notes` link. It prepares deterministic release evidence, drafts only user-visible changes, and uses its bundled helper for every state transition. Generation sends commit messages, the changed-file summary, and the complete diff since the preceding stable tag to the model provider configured for the active agent. Do not generate notes for changes you are unwilling to send to that provider.
+
+The agent follows this order:
+
+1. Prepare validated evidence with `.agents/skills/release-notes/scripts/release-notes generate [TAG] [--force]`.
+2. Draft a Markdown body from that untrusted evidence and finalize it with `generate [TAG] --body-file FILE` or `generate [TAG] --stdin`.
+3. Review with `inspect [TAG]`, or review and edit with `inspect [TAG] --edit`.
+4. Publish the exact inspected body with `publish [TAG]`.
+
+`TAG` is optional. When omitted, it defaults to `v` followed by `internal/version/VERSION`. The helper requires local stable tags and chooses the immediately preceding stable tag that is an ancestor of the selected release. Direct helper use is useful for resuming review or publication:
 
 ```sh
-./scripts/release-notes generate v1.2.3
-./scripts/release-notes inspect v1.2.3 --edit
-./scripts/release-notes publish v1.2.3
+RELEASE_NOTES=.agents/skills/release-notes/scripts/release-notes
+"$RELEASE_NOTES" inspect v1.2.3 --edit
+"$RELEASE_NOTES" publish v1.2.3
 ```
 
-The tag is optional for all three commands. When omitted, it defaults to `v` followed by `internal/version/VERSION`:
+Drafts and prepared evidence are never committed. They use private permissions in a repository-specific directory under `${TMPDIR:-/tmp}/cf-redirect-release-notes/`. The operating system may clean this directory. Preparation refuses to proceed when a draft exists unless `--force` is supplied; the existing draft remains untouched until a non-empty agent-authored body is successfully finalized. Successful finalization invalidates any earlier inspection.
+
+`inspect` opens the draft with `$PAGER`; `inspect --edit` uses `$VISUAL`, then `$EDITOR`, then `vi`. A successful inspection records the exact reviewed content. Changing the draft afterward makes reinspection mandatory.
+
+`publish` requires an existing GitHub release, displays the current-body difference, and asks before replacement. Cancellation leaves the release unchanged. Use `--yes` only for deliberate non-interactive publication; it bypasses the prompt but not validation, inspection, exact-file publication, or post-update verification. The skill never authorizes direct `gh release edit` use.
+
+Run `.agents/skills/release-notes/scripts/release-notes --help` for the complete interface.
+
+The skill and its helper are owned by the canonical `my_agents` repository. Their structure and behavioral tests live beside the helper at `skills/release-notes/tests/release-notes_test.sh` in that repository and run offline through its `bin/test` check. This project does not keep a copy of those tests; it only declares the skill in `.agents-skills.toml`. To verify that this project's links resolve to the canonical skill, run the canonical check against the project root:
 
 ```sh
-./scripts/release-notes generate
-./scripts/release-notes inspect --edit
-./scripts/release-notes publish
+"$MY_AGENTS"/bin/test --project "$(pwd)"
 ```
-
-Generation requires a locally authenticated Pi installation and an authenticated GitHub CLI. It sends commit messages, the changed-file summary, and the complete diff since the preceding stable release tag to the model provider configured in Pi. Do not run it for changes you are unwilling to send to that provider. Pi runs non-interactively without tools, sessions, project context, extensions, skills, or prompt templates.
-
-Drafts are not committed. They are stored with private permissions in a repository-specific directory under `${TMPDIR:-/tmp}/cf-redirect-release-notes/`. The operating system may clean this directory; if a draft is missing, generate it again. Generation refuses to overwrite a draft unless `--force` is supplied, and regeneration invalidates any earlier inspection.
-
-`inspect` opens the draft with `$PAGER`; `inspect --edit` uses `$VISUAL`, then `$EDITOR`, then `vi`. A successful inspection records the exact reviewed content. If the file changes afterward, publication refuses to continue until it is inspected again.
-
-`publish` displays the difference from the current GitHub release body and asks before replacing it. Use `--yes` only for deliberate non-interactive publication. The command requires an existing release and verifies that GitHub returns the exact reviewed body after the update. If generation or publication fails, the existing draft and release body are left in place where possible; inspect the reported state and retry the failed command.
-
-Run `./scripts/release-notes --help` for all options.
 
 ### Homebrew credentials
 
