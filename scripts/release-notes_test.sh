@@ -49,9 +49,9 @@ pass() {
 
 make_repo() {
   local repo=$1 version=${2:-0.1.2}
-  mkdir -p "$repo/internal/version" "$repo/scripts"
+  mkdir -p "$repo/internal/version" "$repo/scripts" "$repo/.pi/prompts"
   cp "$root/scripts/release-notes" "$repo/scripts/release-notes"
-  cp "$root/scripts/release-notes-prompt.md" "$repo/scripts/release-notes-prompt.md"
+  cp "$root/.pi/prompts/release-notes.md" "$repo/.pi/prompts/release-notes.md"
   chmod +x "$repo/scripts/release-notes"
   printf '%s\n' "$version" > "$repo/internal/version/VERSION"
   git -C "$repo" init -q

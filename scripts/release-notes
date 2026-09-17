@@ -53,7 +53,7 @@ resolve_repo() {
   repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || fail "run this command inside the cf-redirect Git repository"
   repo_root=$(cd "$repo_root" && pwd -P)
   [[ -f "$repo_root/internal/version/VERSION" ]] || fail "internal/version/VERSION was not found in $repo_root"
-  prompt_file="$repo_root/scripts/release-notes-prompt.md"
+  prompt_file="$repo_root/.pi/prompts/release-notes.md"
 
   local tmp_base repo_id
   tmp_base=${TMPDIR:-/tmp}
