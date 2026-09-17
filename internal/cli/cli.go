@@ -490,9 +490,9 @@ func configCmd(o *options) *cobra.Command {
 		return err
 	}}
 	root.RunE = show.RunE
-	set := &cobra.Command{Use: "set", Short: "Persist the flag-provided account and list IDs", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if strings.TrimSpace(o.accountID) == "" || strings.TrimSpace(o.listID) == "" {
-			return fmt.Errorf("config set requires --account-id and --list-id")
+	set := &cobra.Command{Use: "set", Short: "Replace saved configuration with the flag-provided account and optional list ID", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if strings.TrimSpace(o.accountID) == "" {
+			return fmt.Errorf("config set requires --account-id")
 		}
 		path, err := config.Path()
 		if err != nil {

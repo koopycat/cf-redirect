@@ -158,8 +158,27 @@ Account and list IDs are resolved in this order:
 2. `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_LIST_ID`
 3. The saved config file
 
+Persist both IDs when one list is always used:
+
+```sh
+cf-redirect config set --account-id YOUR_ACCOUNT_ID --list-id YOUR_LIST_ID
+```
+
+Or persist only the account and select the list at runtime:
+
+```sh
+cf-redirect config set --account-id YOUR_ACCOUNT_ID
+cf-redirect --list-id YOUR_LIST_ID list
+# Alternatively:
+CLOUDFLARE_LIST_ID=YOUR_LIST_ID cf-redirect list
+```
+
+`config set` replaces the saved configuration. Omitting `--list-id` clears any previously saved list ID. List-scoped commands still require a list ID from a flag, environment variable, or saved configuration.
+
 Inspect the resolved IDs and config path with:
 
 ```sh
 cf-redirect config show
 ```
+
+With account-only saved configuration, `config show` also requires a runtime list ID because it displays the fully resolved list-scoped identity.

@@ -34,6 +34,15 @@ cf-redirect config set \
   --list-id YOUR_LIST_ID
 ```
 
+To select the redirect list at runtime instead, save only the account ID:
+
+```sh
+cf-redirect config set --account-id YOUR_ACCOUNT_ID
+cf-redirect --list-id YOUR_LIST_ID list
+```
+
+`config set` replaces the saved configuration. Omitting `--list-id` clears any previously saved list ID, so list-scoped commands then require `--list-id` or `CLOUDFLARE_LIST_ID`.
+
 ### 3. Store the API token
 
 If you need a token, [create a custom Cloudflare API token](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/) with account-level `Account Filter Lists: Edit` permission. Then run:
@@ -133,7 +142,7 @@ cf-redirect import redirects.csv --dry-run
 cf-redirect import redirects.csv --yes
 ```
 
-`CLOUDFLARE_API_TOKEN` takes precedence over the OS keychain. Flags take precedence over account and list ID environment variables, which take precedence over the saved config file. See [Authentication](docs/authentication.md) for keychain setup, WSL instructions, and loading credentials from an env file.
+`CLOUDFLARE_API_TOKEN` takes precedence over the OS keychain. Flags take precedence over account and list ID environment variables, which take precedence over the saved config file. You can persist only the account ID and provide `CLOUDFLARE_LIST_ID` for each runtime environment. See [Authentication](docs/authentication.md) for keychain setup, WSL instructions, and loading credentials from an env file.
 
 ## URL behavior
 

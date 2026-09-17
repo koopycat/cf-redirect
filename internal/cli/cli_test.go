@@ -13,6 +13,7 @@ import (
 	"github.com/zalando/go-keyring"
 
 	"github.com/koopycat/cf-redirect/internal/auth"
+	"github.com/koopycat/cf-redirect/internal/config"
 	"github.com/koopycat/cf-redirect/internal/domain"
 	"github.com/koopycat/cf-redirect/internal/planner"
 	"github.com/koopycat/cf-redirect/internal/textsafe"
@@ -207,6 +208,72 @@ func TestKeyringHelpLeavesNonKeyringErrorsUnchanged(t *testing.T) {
 	failure := errors.New("token is too large")
 	if got := keyringErrorHelpForOS(failure, "linux"); got != failure {
 		t.Fatalf("keyringErrorHelpForOS() = %v, want original error", got)
+	}
+}
+
+func TestConfigSetPersistsAccountWithoutListForRuntimeSelection(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv(config.AccountIDEnv, "")
+	t.Setenv(config.ListIDEnv, "")
+
+	root := NewRootCmd()
+	root.SetArgs([]string{"--account-id", " account-only ", "config", "set"})
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved != (config.Config{AccountID: "account-only"}) {
+		t.Fatalf("saved config = %#v", saved)
+	}
+
+	resolved, err := config.Resolve("", " runtime-list ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != (config.Config{AccountID: "account-only", ListID: "runtime-list"}) {
+		t.Fatalf("resolved config = %#v", resolved)
+	}
+	if _, err := config.Resolve("", ""); err == nil || !strings.Contains(err.Error(), "list ID is required") {
+		t.Fatalf("missing runtime list error = %v", err)
+	}
+}
+
+func TestConfigSetRequiresAccountAndAcceptsBothIDs(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("HOME", configHome)
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	missingAccount := NewRootCmd()
+	missingAccount.SetArgs([]string{"--list-id", "list", "config", "set"})
+	if err := missingAccount.Execute(); err == nil || !strings.Contains(err.Error(), "requires --account-id") {
+		t.Fatalf("missing account error = %v", err)
+	}
+
+	root := NewRootCmd()
+	root.SetArgs([]string{"--account-id", " account ", "--list-id", " list ", "config", "set"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	path, err := config.Path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.Load(path)
+	if err != nil || saved != (config.Config{AccountID: "account", ListID: "list"}) {
+		t.Fatalf("saved config = %#v, %v", saved, err)
 	}
 }
 

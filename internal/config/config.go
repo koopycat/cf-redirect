@@ -137,8 +137,8 @@ func Load(path string) (Config, error) {
 func Save(path string, cfg Config) error {
 	cfg.AccountID = strings.TrimSpace(cfg.AccountID)
 	cfg.ListID = strings.TrimSpace(cfg.ListID)
-	if cfg.AccountID == "" || cfg.ListID == "" {
-		return fmt.Errorf("account ID and list ID are required")
+	if cfg.AccountID == "" {
+		return fmt.Errorf("account ID is required")
 	}
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {

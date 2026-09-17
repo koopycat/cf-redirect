@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -83,13 +84,44 @@ func TestResolveAccountIDRequiresAccount(t *testing.T) {
 	}
 }
 
+func TestResolveCompletesPersistedAccountWithRuntimeList(t *testing.T) {
+	load := func() (Config, error) { return Config{AccountID: " persisted-account "}, nil }
+
+	t.Run("flag", func(t *testing.T) {
+		got, err := resolve("", " flag-list ", func(string) (string, bool) { return "", false }, load)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != (Config{AccountID: "persisted-account", ListID: "flag-list"}) {
+			t.Fatalf("unexpected config: %#v", got)
+		}
+	})
+
+	t.Run("environment", func(t *testing.T) {
+		lookup := func(key string) (string, bool) {
+			if key == ListIDEnv {
+				return " env-list ", true
+			}
+			return "", false
+		}
+		got, err := resolve("", "", lookup, load)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != (Config{AccountID: "persisted-account", ListID: "env-list"}) {
+			t.Fatalf("unexpected config: %#v", got)
+		}
+	})
+}
+
 func TestResolveRequiresBothIDs(t *testing.T) {
 	lookup := func(string) (string, bool) { return "", false }
-	load := func() (Config, error) { return Config{}, nil }
-	if _, err := resolve("", "list", lookup, load); err == nil {
+	if _, err := resolve("", "list", lookup, func() (Config, error) { return Config{}, nil }); err == nil {
 		t.Fatal("expected missing account error")
 	}
-	if _, err := resolve("account", "", lookup, load); err == nil {
+	if _, err := resolve("", "", lookup, func() (Config, error) {
+		return Config{AccountID: "persisted-account"}, nil
+	}); err == nil {
 		t.Fatal("expected missing list error")
 	}
 }
@@ -112,24 +144,40 @@ func TestLoadRejectsUnknownFieldsAndTrailingJSON(t *testing.T) {
 }
 
 func TestSaveIsAtomicAndPrivate(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "nested", "config.json")
-	want := Config{AccountID: "account", ListID: "list"}
-	if err := Save(path, want); err != nil {
-		t.Fatal(err)
+	for name, input := range map[string]Config{
+		"account and list": {AccountID: " account ", ListID: " list "},
+		"account only":     {AccountID: " account ", ListID: "   "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "nested", "config.json")
+			if err := Save(path, input); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Load(path)
+			if err != nil || got != (Config{AccountID: "account", ListID: strings.TrimSpace(input.ListID)}) {
+				t.Fatalf("Load() = %#v, %v", got, err)
+			}
+			info, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != 0o600 {
+				t.Fatalf("config mode = %o", info.Mode().Perm())
+			}
+			matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".config-*"))
+			if err != nil || len(matches) != 0 {
+				t.Fatalf("temporary files remain: %v, %v", matches, err)
+			}
+		})
 	}
-	got, err := Load(path)
-	if err != nil || got != want {
-		t.Fatalf("Load() = %#v, %v", got, err)
+}
+
+func TestSaveRequiresAccount(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := Save(path, Config{ListID: "list"}); err == nil {
+		t.Fatal("expected missing account error")
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("config mode = %o", info.Mode().Perm())
-	}
-	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), ".config-*"))
-	if err != nil || len(matches) != 0 {
-		t.Fatalf("temporary files remain: %v, %v", matches, err)
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("config file exists after rejected save: %v", err)
 	}
 }
