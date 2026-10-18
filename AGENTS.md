@@ -8,6 +8,9 @@
 
 Enter commands through `devenv shell -- ...`; direnv activates the same shell automatically after `direnv allow`.
 
+The `go` line in `go.mod` is the minimum Go for `go install` users; the `toolchain` line is the Go that CI and release builds use.
+devenv sets `GOTOOLCHAIN=local`, so `go_1_26` in `devenv.nix` must satisfy the `go` line; raise both together.
+
 ## Commands
 
 - `just fmt` — format Go sources

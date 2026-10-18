@@ -2,7 +2,7 @@
 
 ## Development environment
 
-The project uses Go 1.25, `devenv`, and `just`.
+The project uses Go 1.26, `devenv`, and `just`.
 
 Enter the development shell with direnv:
 
