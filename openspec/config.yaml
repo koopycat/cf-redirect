@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  cf-redirect is a Go 1.25 CLI and Bubble Tea TUI for safely managing one
+  cf-redirect is a Go 1.26 CLI and Bubble Tea TUI for safely managing one
   explicitly configured Cloudflare Bulk Redirect List. Cobra and Bubble Tea
   are interface layers over independent domain, planner, application, CSV,
   authentication, configuration, and Cloudflare client packages.

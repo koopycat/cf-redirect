@@ -168,7 +168,7 @@ Source matching for edit, delete, and import is exact. Copy the source shown by 
 
 Download a prebuilt archive for Linux or macOS on `amd64` or `arm64` from [GitHub Releases](https://github.com/koopycat/cf-redirect/releases). Each release includes a `SHA256SUMS` file.
 
-To install with Go 1.25 or newer:
+To install with Go 1.26 or newer:
 
 ```sh
 go install github.com/koopycat/cf-redirect/cmd/cf-redirect@latest
