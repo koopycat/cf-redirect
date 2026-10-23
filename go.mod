@@ -1,8 +1,6 @@
 module github.com/koopycat/cf-redirect
 
-go 1.26.0
-
-toolchain go1.26.10
+go 1.27.2
 
 require (
 	charm.land/bubbles/v2 v2.2.1
@@ -10,7 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.6
 	github.com/charmbracelet/x/ansi v0.11.9
 	github.com/charmbracelet/x/term v0.2.2
-	github.com/godbus/dbus/v5 v5.2.2
+	github.com/godbus/dbus/v5 v5.2.4
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 )
